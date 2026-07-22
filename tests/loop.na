@@ -1,0 +1,29 @@
+fn main() -> void {
+    let i: u32 = 0;
+
+    // basic while
+    for i < 5 {
+        print_u32!(i);
+        i = i + 1;
+    }
+
+    // while with break
+    let j: u32 = 0;
+    for j < 100 {
+        if j == 3 {
+            break;
+        }
+        print_u32!(j);
+        j = j + 1;
+    }
+
+    // while with continue
+    let k: u32 = 0;
+    for k < 5 {
+        k = k + 1;
+        if k == 3 {
+            continue;
+        }
+        print_u32!(k);
+    }
+}

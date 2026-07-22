@@ -1,0 +1,21 @@
+fn add(a: u32, b: u32) -> u32 {
+    ret a + b;
+}
+
+fn greet(name: []u8) -> void {
+    print_string!(name);
+}
+
+internal fn helper(x: u32) -> u32 {
+    ret x + x;
+}
+
+fn main() -> void {
+    let sum: u32 = add(3, 4);
+    print_u32!(sum);
+    
+    let doubled: u32 = helper(5);
+    print_u32!(doubled);
+    
+    greet("hello");
+}

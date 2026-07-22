@@ -1,0 +1,21 @@
+const Point = struct {
+    x: u32,
+    y: u32,
+    
+    fn distance(&self) -> u32 {
+        ret self.x + self.y;
+    }
+}
+
+fn main() -> void {
+    // struct literal
+    let p: Point = Point { x: 3, y: 4 };
+    
+    // field access
+    print_u32!(p.x);
+    print_u32!(p.y);
+    
+    // method call
+    let d: u32 = p.distance();
+    print_u32!(d);
+}

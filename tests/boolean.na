@@ -1,0 +1,24 @@
+fn main() -> void {
+    let t: bool = true;
+    let f: bool = false;
+    
+    // and
+    if t and t {
+        print_u8!(1);
+    }
+    
+    // or
+    if f or t {
+        print_u8!(2);
+    }
+    
+    // not
+    if !f {
+        print_u8!(3);
+    }
+    
+    // combined
+    if t and !f {
+        print_u8!(4);
+    }
+}

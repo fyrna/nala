@@ -1,0 +1,11 @@
+fn main() -> void {
+    let mut x: u32 = 10;
+
+    // simple
+    x = 20;
+    print_u32!(x);
+
+    // compound
+    x += 5;
+    print_u32!(x);
+}

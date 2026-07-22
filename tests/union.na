@@ -1,0 +1,20 @@
+const Option = union { Some(u8), None, }
+const Result = union { Ok(u32), Err([]u8), }
+
+fn main() -> void {
+    // union construction with payload
+    let opt1: Option = Option.Some(42);
+    
+    // union construction unit variant
+    let opt2: Option = Option.None();
+    
+    // pattern match
+    match opt1 {
+        Option.Some(val) => {
+            print_u8!(val);
+        },
+        Option.None => {
+            print_u8!(0);
+        },
+    }
+}

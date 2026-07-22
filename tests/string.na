@@ -1,0 +1,18 @@
+// string in nala is different then []u8 (array of bytes) btw -w-
+// why? dont ask me! it's human nature, you know? diverse.
+
+fn main() -> void {
+    let s: []u8 = "hello world";
+    
+    // string length
+    let len: usize = byte_len!(s);
+    print_u64!(len);
+    
+    // byte at index
+    let b: u8 = byte_at!(s, 0);
+    print_u8!(b);
+    
+    // slice bytes
+    let sub: []u8 = slice_bytes!(s, 0, 5);
+    print_string!(sub);
+}

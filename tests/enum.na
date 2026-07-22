@@ -1,0 +1,17 @@
+const TokenKind = enum { EOF, Ident, IntLiteral, StringLiteral, }
+
+fn main() -> void {
+    // variant access
+    let kind: TokenKind = TokenKind.EOF;
+    
+    // comparison
+    if kind == TokenKind.EOF {
+        print_u8!(1);
+    }
+    
+    // reassign enum
+    kind = TokenKind.Ident;
+    if kind == TokenKind.Ident {
+        print_u8!(2);
+    }
+}
