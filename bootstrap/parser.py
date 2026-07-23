@@ -47,6 +47,7 @@ from nala_ast import (
     Param, ReturnStmt, IfStmt, WhileStmt, AssignStmt, ExprStmt, LetStmt, FnDecl, SelfParam,
     ContinueStmt, BreakStmt, StructLiteral,
     DottedAccess, DottedCall,
+    ArrayLiteral, ArrayIndex,
 )
 
 
@@ -342,13 +343,21 @@ class Parser:
 
         Format:
             ident            -> simple type (i32, str, Token)
-            []ident          -> array type ([]i32, []str)
+            []ident          -> slice type ([]i32, []str)
+            [N]ident         -> fixed array type ([3]i32, [5]str)
 
         Returns:
             str: Nama tipe dalam bentuk string
         """
         if self._current.kind == TokenKind.LBRACKET:
             self._advance()
+            # [N]T -> fixed-size array
+            if self._current.kind == TokenKind.INT_LITERAL:
+                size_tok = self._advance()
+                self._expect(TokenKind.RBRACKET)
+                inner_tok = self._expect(TokenKind.IDENT)
+                return f"[{size_tok.text}]{inner_tok.text}"
+            # []T -> slice
             self._expect(TokenKind.RBRACKET)
             inner_tok = self._expect(TokenKind.IDENT)
             return f"[]{inner_tok.text}"
@@ -644,8 +653,14 @@ class Parser:
                     self._restore_state(saved)
                     return Ident(name_tok.text)
 
-            # --- Simple identifier ---
-            return Ident(name_tok.text)
+            # --- Array index: ident[expr] ---
+            target = Ident(name_tok.text)
+            while self._current.kind == TokenKind.LBRACKET:
+                self._advance()
+                index_expr = self._parse_expr()
+                self._expect(TokenKind.RBRACKET)
+                target = ArrayIndex(obj=target, index=index_expr)
+            return target
 
         # --- Literals ---
         elif self._current.kind == TokenKind.STRING_LITERAL:
@@ -662,6 +677,19 @@ class Parser:
         elif self._current.kind == TokenKind.INT_LITERAL:
             tok = self._advance()
             return Ident(tok.text)
+
+        # --- Array literal: [1, 2, 3] ---
+        elif self._current.kind == TokenKind.LBRACKET:
+            self._advance()  # konsumsi '['
+            elements = []
+            while self._current.kind != TokenKind.RBRACKET:
+                elements.append(self._parse_expr())
+                if self._current.kind == TokenKind.COMMA:
+                    self._advance()
+                else:
+                    break
+            self._expect(TokenKind.RBRACKET)
+            return ArrayLiteral(elements=elements)
 
         # --- Parenthesized expression ---
         elif self._current.kind == TokenKind.LPAREN:
@@ -781,24 +809,33 @@ class Parser:
 
     def _parse_simple_target(self) -> Expr:
         """
-        Parse assignment target (identifier atau field access).
+        Parse assignment target (identifier, field access, atau array index).
 
         Format:
             ident
             ident.field
+            ident[i]
             ident.field.subfield (belum support)
 
         Returns:
-            Expr: Ident atau FieldAccess
+            Expr: Ident, FieldAccess, atau ArrayIndex
         """
         if self._current.kind != TokenKind.IDENT:
             raise ParseError("Diharapkan identifier untuk assignment target")
         name_tok = self._advance()
         target = Ident(name_tok.text)
-        while self._current.kind == TokenKind.DOT:
-            self._advance()
-            field_tok = self._expect(TokenKind.IDENT)
-            target = FieldAccess(target, field_tok.text)
+        while True:
+            if self._current.kind == TokenKind.DOT:
+                self._advance()
+                field_tok = self._expect(TokenKind.IDENT)
+                target = FieldAccess(target, field_tok.text)
+            elif self._current.kind == TokenKind.LBRACKET:
+                self._advance()
+                index_expr = self._parse_expr()
+                self._expect(TokenKind.RBRACKET)
+                target = ArrayIndex(obj=target, index=index_expr)
+            else:
+                break
         return target
 
     def _parse_let_stmt(self) -> LetStmt:

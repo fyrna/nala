@@ -39,6 +39,7 @@ from nala_ast import (
     BinaryExpr, UnaryExpr, CallExpr, FieldAccess, MethodCall,
     IntrinsicCall, StructLiteral, UnionLiteral, EnumVariantAccess,
     IfExpr, DottedAccess, DottedCall,
+    ArrayLiteral, ArrayIndex,
     # Statements
     Stmt, ReturnStmt, IfStmt, WhileStmt, AssignStmt, ExprStmt,
     LetStmt, MatchStmt, MatchArm, ElifClause, ContinueStmt, BreakStmt,
@@ -52,6 +53,7 @@ from ir.hir import (
     HFieldAccess, HBinaryExpr, HUnaryExpr, HCallExpr,
     HMethodCall, HIntrinsicCall, HStructLiteral, HUnionLiteral,
     HEnumVariantAccess, HIfExpr,
+    HArrayLiteral, HArrayIndex,
     HExpr,
     # Statements
     HParam, HSelfParam, HReturnStmt, HIfStmt, HWhileStmt,
@@ -145,6 +147,25 @@ class HIRBuilder:
         """Buat TypeRef dari nama tipe (fallback ke 'void' kalau None)."""
         return TypeRef(type_name if type_name is not None else "void")
 
+    def _parse_array_type(self, type_name: str) -> tuple[int, str] | None:
+        """Parse [N]T -> (N, T) atau None kalau bukan array type."""
+        if not type_name.startswith("[") or "]" not in type_name:
+            return None
+        # Format: [N]T
+        bracket_end = type_name.index("]")
+        size_str = type_name[1:bracket_end]
+        inner_type = type_name[bracket_end + 1:]
+        try:
+            size = int(size_str)
+            return (size, inner_type)
+        except ValueError:
+            return None
+
+    def _array_element_type(self, type_name: str) -> str | None:
+        """Dapatkan tipe elemen dari [N]T, atau None."""
+        parsed = self._parse_array_type(type_name)
+        return parsed[1] if parsed else None
+
     def _infer_expr_type(self, expr: Expr) -> TypeRef:
         """Infer tipe dari ekspresi AST (sederhana, untuk local tracking)."""
         if isinstance(expr, StringLiteral):
@@ -164,6 +185,12 @@ class HIRBuilder:
             return TypeRef(expr.union_name)
         elif isinstance(expr, EnumVariantAccess):
             return TypeRef(expr.enum_name)
+        elif isinstance(expr, ArrayLiteral):
+            # Infer dari elemen pertama kalau ada
+            if expr.elements:
+                elem_type = self._infer_expr_type(expr.elements[0]).name
+                return TypeRef(f"[{len(expr.elements)}]{elem_type}")
+            return TypeRef("[0]void")
         return TypeRef("void")  # fallback
 
     # --- Translation: Expressions ---
@@ -274,6 +301,31 @@ class HIRBuilder:
             return HIfExpr(
                 cond=cond, then_branch=then_branch, else_branch=else_branch,
                 type_ref=then_branch.type_ref
+            )
+
+        elif isinstance(expr, ArrayLiteral):
+            # Infer type dari context atau dari elemen
+            elements = [self._translate_expr(e) for e in expr.elements]
+            # Default: infer dari elemen pertama
+            elem_type = elements[0].type_ref.name if elements else "void"
+            array_type = f"[{len(elements)}]{elem_type}"
+            return HArrayLiteral(
+                elements=elements,
+                type_ref=TypeRef(array_type)
+            )
+
+        elif isinstance(expr, ArrayIndex):
+            obj = self._translate_expr(expr.obj)
+            index = self._translate_expr(expr.index)
+            # Tipe hasil = tipe elemen array
+            elem_type = self._array_element_type(obj.type_ref.name)
+            if elem_type is None:
+                raise TypeCheckError(
+                    f"Indexing pada non-array type: {obj.type_ref.name}"
+                )
+            return HArrayIndex(
+                obj=obj, index=index,
+                type_ref=TypeRef(elem_type)
             )
 
         elif isinstance(expr, DottedAccess):

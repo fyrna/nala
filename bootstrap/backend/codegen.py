@@ -32,6 +32,7 @@ from ir.hir import (
     HFieldAccess, HBinaryExpr, HUnaryExpr, HCallExpr,
     HMethodCall, HIntrinsicCall, HStructLiteral, HUnionLiteral,
     HEnumVariantAccess, HIfExpr,
+    HArrayLiteral, HArrayIndex,
     HExpr,
     # Statements
     HParam, HSelfParam, HReturnStmt, HIfStmt, HWhileStmt,
@@ -100,8 +101,33 @@ _BINOP_MAP = {
     "<": "<",
 }
 
+def _parse_array_type(type_name: str) -> tuple[int, str] | None:
+    """Parse [N]T -> (N, T) atau None."""
+    if not type_name.startswith("[") or "]" not in type_name:
+        return None
+    bracket_end = type_name.index("]")
+    size_str = type_name[1:bracket_end]
+    inner_type = type_name[bracket_end + 1:]
+    try:
+        return (int(size_str), inner_type)
+    except ValueError:
+        return None
+
+
+def _array_struct_name(type_name: str) -> str:
+    """Generate nama struct wrapper untuk [N]T: Array_3_i32."""
+    parsed = _parse_array_type(type_name)
+    assert parsed is not None
+    size, inner = parsed
+    return f"Array_{size}_{inner}"
+
+
 def _c_type(type_ref: TypeRef) -> str:
     """Konversi TypeRef ke tipe C."""
+    # Check array type
+    parsed = _parse_array_type(type_ref.name)
+    if parsed is not None:
+        return _array_struct_name(type_ref.name)
     return _PRIMITIVE_TYPE_MAP.get(type_ref.name, type_ref.name)
 
 
@@ -109,6 +135,30 @@ def _c_type(type_ref: TypeRef) -> str:
 
 
 _temp_counter = 0
+
+# Track array types yang perlu di-generate struct wrapper-nya
+_array_types_needed: set[str] = set()
+
+
+def _register_array_type(type_name: str) -> None:
+    """Register [N]T type untuk generate struct wrapper."""
+    if _parse_array_type(type_name) is not None:
+        _array_types_needed.add(type_name)
+
+
+def _gen_array_struct_defs() -> list[str]:
+    """Generate C struct wrapper untuk semua [N]T yang terpakai."""
+    lines = []
+    for type_name in sorted(_array_types_needed):
+        parsed = _parse_array_type(type_name)
+        if parsed is None:
+            continue
+        size, inner = parsed
+        struct_name = _array_struct_name(type_name)
+        inner_c_type = _PRIMITIVE_TYPE_MAP.get(inner, inner)
+        lines.append(f"typedef struct {{ {inner_c_type} data[{size}]; }} {struct_name};")
+    return lines
+
 
 def _fresh_temp(prefix: str = "__tmp") -> str:
     global _temp_counter
@@ -199,6 +249,17 @@ def gen_expr(expr: HExpr) -> str:
 
     elif isinstance(expr, HEnumVariantAccess):
         return f"{expr.enum_name.upper()}_{expr.variant_name.upper()}"
+
+    elif isinstance(expr, HArrayLiteral):
+        _register_array_type(expr.type_ref.name)
+        struct_name = _array_struct_name(expr.type_ref.name)
+        parts = ", ".join(gen_expr(e) for e in expr.elements)
+        return f"({struct_name}){{{{{parts}}}}}"
+
+    elif isinstance(expr, HArrayIndex):
+        obj_str = gen_expr(expr.obj)
+        index_str = gen_expr(expr.index)
+        return f"({obj_str}.data[{index_str}])"
 
     elif isinstance(expr, HIfExpr):
         raise ValueError(
@@ -491,8 +552,21 @@ def gen_program(decls: list[HDecl]) -> str:
     _runtime_content = RUNTIME_C.strip()
     runtime_section = [""] + _runtime_content.split("\n")
 
+    # Collect array types from all declarations first
+    for d in decls:
+        if isinstance(d, HFnDecl):
+            # Check params and return type
+            _register_array_type(d.return_type.name)
+            for p in d.params:
+                _register_array_type(p.type_ref.name)
+        elif isinstance(d, HStructDecl):
+            for f in d.fields:
+                _register_array_type(f.type_ref.name)
+
     # Type definitions
     type_defs = []
+    # Array struct wrappers first
+    type_defs.extend(_gen_array_struct_defs())
     for d in decls:
         if isinstance(d, HEnumDecl):
             type_defs.append(gen_enum(d))

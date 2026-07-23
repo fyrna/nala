@@ -93,6 +93,21 @@ class HFieldAccess:
 
 
 @dataclass
+class HArrayLiteral:
+    """Array literal: [1, 2, 3] — sudah typed."""
+    elements: list[HExpr]
+    type_ref: TypeRef
+
+
+@dataclass
+class HArrayIndex:
+    """Array indexing: arr[i] — sudah typed."""
+    obj: HExpr
+    index: HExpr
+    type_ref: TypeRef
+
+
+@dataclass
 class HBinaryExpr:
     """Ekspresi biner: left OP right."""
     op: str
@@ -181,6 +196,7 @@ HExpr = (
     | HFieldAccess | HBinaryExpr | HUnaryExpr | HCallExpr
     | HMethodCall | HIntrinsicCall | HStructLiteral | HUnionLiteral
     | HEnumVariantAccess | HIfExpr
+    | HArrayLiteral | HArrayIndex
 )
 
 

@@ -379,6 +379,44 @@ class UnionLiteral:
 
 
 @dataclass
+class ArrayLiteral:
+    """
+    Array literal: [1, 2, 3].
+
+    Fixed-size array literal dengan elemen-elemen yang diberikan.
+    Type dan size di-infer oleh type checker dari context.
+
+    Contoh:
+        [1, 2, 3]           → elements=[1, 2, 3]
+        ["a", "b"]          → elements=["a", "b"]
+        []                  → elements=[] (empty array, size 0)
+
+    Type checker akan infer:
+        - [1, 2, 3] sebagai [3]i32 (kalau context mengharapkan i32)
+        - ["a", "b"] sebagai [2]str
+    """
+    elements: list["Expr"]
+
+
+@dataclass
+class ArrayIndex:
+    """
+    Array indexing: arr[i].
+
+    Akses elemen array pada index tertentu.
+    Hasil adalah elemen dengan tipe T (dari [N]T).
+
+    Contoh:
+        arr[0]      → obj=arr, index=0
+        arr[i + 1]  → obj=arr, index=i+1
+
+    Bounds checking: stage0 tidak ada runtime bounds check.
+    """
+    obj: "Expr"
+    index: "Expr"
+
+
+@dataclass
 class EnumVariantAccess:
     """
     Akses variant enum: `EnumName.VariantName` (tanpa payload, tanpa kurung).
@@ -517,6 +555,7 @@ Expr = (
     | StringLiteral | IntLiteral | ByteLiteral | FieldAccess | IfExpr
     | StructLiteral | UnionLiteral | EnumVariantAccess
     | DottedAccess | DottedCall
+    | ArrayLiteral | ArrayIndex
 )
 
 # Statement

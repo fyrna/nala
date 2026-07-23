@@ -1,0 +1,12 @@
+fn main() -> void {
+    let arr: [3]i32 = [1, 2, 3];
+    print_i32!(arr[0]);  // 1
+    arr[1] = 42;
+    print_i32!(arr[1]);  // 42
+
+    sample([10, 100, 50]);
+}
+
+fn sample(data: [3]i32) -> void {
+    print_i32!(data[2]);
+}
