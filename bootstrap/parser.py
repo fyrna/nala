@@ -44,7 +44,7 @@ from nala_ast import (
     Expr, Stmt, Ident, StringLiteral, IntLiteral, ByteLiteral,
     BinaryExpr, UnaryExpr, CallExpr, FieldAccess, IntrinsicCall,
     IfExpr, ElifClause, MatchArm, MatchStmt, UnionLiteral,
-    Param, ReturnStmt, IfStmt, WhileStmt, AssignStmt, ExprStmt, LetStmt, FnDecl, SelfParam,
+    Param, ReturnStmt, IfStmt, WhileStmt, ForInStmt, AssignStmt, ExprStmt, LetStmt, FnDecl, SelfParam,
     ContinueStmt, BreakStmt, StructLiteral,
     DottedAccess, DottedCall,
     ArrayLiteral, ArrayIndex,
@@ -916,15 +916,39 @@ class Parser:
                 break
         return IfStmt(cond, body, elifs, else_body)
 
-    def _parse_for_stmt(self) -> WhileStmt:
+    def _parse_for_stmt(self) -> Stmt:
         """
-        Parse for statement (while-style loop).
+        Parse for statement (while-style atau iterator-style).
 
-        Format: for cond { body }
+        Format:
+            for cond { body }           -> while-style loop
+            for x in arr { body }       -> iterator-style loop (stage0)
 
         Note: Syntax 'for' bukan 'while' untuk konsistensi dengan Nala.
+        Stage0 hanya support: for x in arr (by value).
         """
         self._advance()
+
+    def _parse_for_stmt(self) -> Stmt:
+        self._advance()  # konsumsi 'for'
+
+        # Cek apakah ini for-in: for x in arr { ... }
+        # Pattern: for IDENT IDENT("in") expr { ... }
+        if self._current.kind == TokenKind.IDENT:
+            saved = self._save_state()
+            var_name = self._advance().text  # konsumsi var_name
+
+            if (self._current.kind == TokenKind.IDENT and 
+                self._current.text == "in"):
+                self._advance()  # konsumsi 'in'
+                iterable = self._parse_expr()
+                body = self._parse_block()
+                return ForInStmt(var_name=var_name, iterable=iterable, body=body)
+
+        # Bukan for-in, restore dan parse sebagai while-style
+        self._restore_state(saved)
+
+        # While-style: for cond { body }
         cond = self._parse_expr()
         body = self._parse_block()
         return WhileStmt(cond, body)

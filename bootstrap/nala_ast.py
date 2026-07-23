@@ -681,6 +681,29 @@ class WhileStmt:
 
 
 @dataclass
+class ForInStmt:
+    """
+    Statement `for x in arr { body }` -- iterator-style loop.
+
+    For-in loop untuk iterate over array atau slice.
+    Stage0 hanya support: for x in arr (by value, primitive types).
+
+    Nanti di Nala proper:
+        for val in arr       { ... }  // value move
+        for i, _ in &arr     { ... }  // index borrow
+        for i, val in &mut arr { ... }  // index + mutable borrow
+
+    Contoh:
+        for x in arr {
+            print_i32!(x);
+        }
+    """
+    var_name: str
+    iterable: "Expr"
+    body: list["Stmt"] = field(default_factory=list)
+
+
+@dataclass
 class AssignStmt:
     """
     Statement assignment: `target = value;` atau `target += value;` dst.
@@ -774,7 +797,7 @@ class LetStmt:
     is_mut: bool = False
 
 # Type alias untuk semua jenis statement
-Stmt = ReturnStmt | IfStmt | WhileStmt | AssignStmt | LetStmt | ExprStmt | MatchStmt | ContinueStmt | BreakStmt
+Stmt = ReturnStmt | IfStmt | WhileStmt | ForInStmt | AssignStmt | LetStmt | ExprStmt | MatchStmt | ContinueStmt | BreakStmt
 
 @dataclass
 class FnDecl:

@@ -183,6 +183,7 @@ uint8_t __intrinsic_byte_at(NalaSlice s, size_t index) {
  */
 
 /* Unsigned integers */
+void __intrinsic_print_usize(size_t x) { printf("%zu\n", x); }
 void __intrinsic_print_u8(uint8_t x)   { printf("%u\n", x); }
 void __intrinsic_print_u16(uint16_t x) { printf("%u\n", x); }
 void __intrinsic_print_u32(uint32_t x) { printf("%u\n", x); }

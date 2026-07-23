@@ -22,8 +22,20 @@ fn main() -> void {
     for k < 5 {
         k = k + 1;
         if k == 3 {
+            print_string!("surprise");
             continue;
         }
         print_u32!(k);
+    }
+
+    let arr: [3]i32 = [1, 2, 3];
+    print_usize!(len!(arr));  // 3
+
+    // for-in
+    for x in arr {
+        if x == 3 {
+            print_string!("sounds good");
+        }
+        print_i32!(x);  // 1, 2, 3
     }
 }

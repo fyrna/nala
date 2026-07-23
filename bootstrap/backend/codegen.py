@@ -35,7 +35,7 @@ from ir.hir import (
     HArrayLiteral, HArrayIndex,
     HExpr,
     # Statements
-    HParam, HSelfParam, HReturnStmt, HIfStmt, HWhileStmt,
+    HParam, HSelfParam, HReturnStmt, HIfStmt, HWhileStmt, HForInStmt,
     HAssignStmt, HExprStmt, HLetStmt, HMatchStmt, HMatchArm,
     HElifClause, HContinueStmt, HBreakStmt,
     HStmt,
@@ -83,6 +83,7 @@ _INTRINSIC_MAP = {
     "print_f64": "__intrinsic_print_f64",
     "print_bool": "__intrinsic_print_bool",
     "print_string": "__intrinsic_print_string",
+    "print_usize": "__intrinsic_print_usize",
     "byte_len": "__intrinsic_byte_len",
     "as_bytes": "__intrinsic_as_bytes",
     "slice_bytes": "__intrinsic_slice_bytes",
@@ -166,6 +167,106 @@ def _fresh_temp(prefix: str = "__tmp") -> str:
     return f"{prefix}_{_temp_counter}"
 
 
+# ---------------------------------------------------------------------------
+# Array type collection -- recursively scan HIR before code generation
+# ---------------------------------------------------------------------------
+
+def _collect_array_types_from_expr(expr: HExpr) -> None:
+    """Recursively collect array types from HIR expression."""
+    if isinstance(expr, HArrayLiteral):
+        _register_array_type(expr.type_ref.name)
+        for e in expr.elements:
+            _collect_array_types_from_expr(e)
+    elif isinstance(expr, HBinaryExpr):
+        _collect_array_types_from_expr(expr.left)
+        _collect_array_types_from_expr(expr.right)
+    elif isinstance(expr, HUnaryExpr):
+        _collect_array_types_from_expr(expr.operand)
+    elif isinstance(expr, HFieldAccess):
+        _collect_array_types_from_expr(expr.obj)
+    elif isinstance(expr, HCallExpr):
+        for a in expr.args:
+            _collect_array_types_from_expr(a)
+    elif isinstance(expr, HMethodCall):
+        _collect_array_types_from_expr(expr.obj)
+        for a in expr.args:
+            _collect_array_types_from_expr(a)
+    elif isinstance(expr, HIntrinsicCall):
+        for a in expr.args:
+            _collect_array_types_from_expr(a)
+    elif isinstance(expr, HStructLiteral):
+        for _, v in expr.fields:
+            _collect_array_types_from_expr(v)
+    elif isinstance(expr, HUnionLiteral):
+        if expr.payload:
+            _collect_array_types_from_expr(expr.payload)
+    elif isinstance(expr, HIfExpr):
+        _collect_array_types_from_expr(expr.cond)
+        _collect_array_types_from_expr(expr.then_branch)
+        _collect_array_types_from_expr(expr.else_branch)
+    elif isinstance(expr, HArrayIndex):
+        _collect_array_types_from_expr(expr.obj)
+        _collect_array_types_from_expr(expr.index)
+
+
+def _collect_array_types_from_stmt(stmt: HStmt) -> None:
+    """Recursively collect array types from HIR statement."""
+    if isinstance(stmt, HReturnStmt):
+        _collect_array_types_from_expr(stmt.expr)
+    elif isinstance(stmt, HIfStmt):
+        _collect_array_types_from_expr(stmt.cond)
+        for s in stmt.body:
+            _collect_array_types_from_stmt(s)
+        for e in stmt.elifs:
+            _collect_array_types_from_expr(e.cond)
+            for s in e.body:
+                _collect_array_types_from_stmt(s)
+        for s in stmt.else_body:
+            _collect_array_types_from_stmt(s)
+    elif isinstance(stmt, HWhileStmt):
+        _collect_array_types_from_expr(stmt.cond)
+        for s in stmt.body:
+            _collect_array_types_from_stmt(s)
+    elif isinstance(stmt, HForInStmt):
+        _register_array_type(stmt.iterable.type_ref.name)
+        _collect_array_types_from_expr(stmt.iterable)
+        for s in stmt.body:
+            _collect_array_types_from_stmt(s)
+    elif isinstance(stmt, HAssignStmt):
+        _collect_array_types_from_expr(stmt.target)
+        _collect_array_types_from_expr(stmt.value)
+    elif isinstance(stmt, HLetStmt):
+        _register_array_type(stmt.type_ref.name)
+        _collect_array_types_from_expr(stmt.value)
+    elif isinstance(stmt, HExprStmt):
+        _collect_array_types_from_expr(stmt.expr)
+    elif isinstance(stmt, HMatchStmt):
+        _collect_array_types_from_expr(stmt.expr)
+        for arm in stmt.arms:
+            for s in arm.body:
+                _collect_array_types_from_stmt(s)
+
+
+def _collect_all_array_types(decls: list[HDecl]) -> None:
+    """Collect all array types from entire HIR program."""
+    for d in decls:
+        if isinstance(d, HFnDecl):
+            _register_array_type(d.return_type.name)
+            for p in d.params:
+                _register_array_type(p.type_ref.name)
+            for s in d.body:
+                _collect_array_types_from_stmt(s)
+        elif isinstance(d, HStructDecl):
+            for f in d.fields:
+                _register_array_type(f.type_ref.name)
+            for m in d.methods:
+                _register_array_type(m.return_type.name)
+                for p in m.params:
+                    _register_array_type(p.type_ref.name)
+                for s in m.body:
+                    _collect_array_types_from_stmt(s)
+
+
 # Expression code generation
 
 
@@ -216,11 +317,26 @@ def gen_expr(expr: HExpr) -> str:
         return f"{callee}({self_arg})"
 
     elif isinstance(expr, HIntrinsicCall):
+        # Special handling for len!
+        if expr.name == "len" and expr.args:
+            arg = expr.args[0]
+
+            # Array: compile-time constant
+            parsed = _parse_array_type(arg.type_ref.name)
+            if parsed is not None:
+                size, _ = parsed
+                return str(size)
+
+            # Slice: runtime .len
+            if arg.type_ref.name in ("[]u8", "str"):
+                arg_str = gen_expr(arg)
+                return f"({arg_str}.len)"
         c_name = _INTRINSIC_MAP.get(expr.name)
         if c_name is None:
             raise ValueError(f"Intrinsic belum didukung: {expr.name}")
         args = ", ".join(gen_expr(a) for a in expr.args)
         return f"{c_name}({args})"
+    # ... rest
 
     elif isinstance(expr, HCallExpr):
         args_str = ", ".join(gen_expr(a) for a in expr.args)
@@ -251,7 +367,6 @@ def gen_expr(expr: HExpr) -> str:
         return f"{expr.enum_name.upper()}_{expr.variant_name.upper()}"
 
     elif isinstance(expr, HArrayLiteral):
-        _register_array_type(expr.type_ref.name)
         struct_name = _array_struct_name(expr.type_ref.name)
         parts = ", ".join(gen_expr(e) for e in expr.elements)
         return f"({struct_name}){{{{{parts}}}}}"
@@ -345,8 +460,36 @@ def gen_stmt(stmt: HStmt, indent: int = 1) -> list[str]:
     elif isinstance(stmt, HMatchStmt):
         lines.extend(_gen_match_stmt(stmt, indent))
 
+    elif isinstance(stmt, HForInStmt):
+        lines.extend(_gen_forin_stmt(stmt, indent))
+
     else:
         raise TypeError(f"Tipe statement HIR tidak dikenal: {type(stmt).__name__}")
+
+    return lines
+
+
+def _gen_forin_stmt(stmt: HForInStmt, indent: int) -> list[str]:
+    """Generate C code untuk for-in loop."""
+    pad = "    " * indent
+    lines: list[str] = []
+
+    iter_expr = gen_expr(stmt.iterable)
+    iter_type = stmt.iterable.type_ref.name
+    parsed = _parse_array_type(iter_type)
+
+    if parsed is None:
+        raise ValueError(f"for-in pada non-array type: {iter_type}")
+
+    size, _ = parsed
+    elem_c_type = _c_type(stmt.var_type)
+    index_var = _fresh_temp("__i")
+
+    lines.append(f"{pad}for (size_t {index_var} = 0; {index_var} < {size}; {index_var}++) {{")
+    lines.append(f"{pad}    {elem_c_type} {stmt.var_name} = {iter_expr}.data[{index_var}];")
+    for s in stmt.body:
+        lines.extend(gen_stmt(s, indent + 2))
+    lines.append(f"{pad}}}")
 
     return lines
 
@@ -552,16 +695,8 @@ def gen_program(decls: list[HDecl]) -> str:
     _runtime_content = RUNTIME_C.strip()
     runtime_section = [""] + _runtime_content.split("\n")
 
-    # Collect array types from all declarations first
-    for d in decls:
-        if isinstance(d, HFnDecl):
-            # Check params and return type
-            _register_array_type(d.return_type.name)
-            for p in d.params:
-                _register_array_type(p.type_ref.name)
-        elif isinstance(d, HStructDecl):
-            for f in d.fields:
-                _register_array_type(f.type_ref.name)
+    # Collect array types from entire HIR program
+    _collect_all_array_types(decls)
 
     # Type definitions
     type_defs = []

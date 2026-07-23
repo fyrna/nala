@@ -41,7 +41,7 @@ from nala_ast import (
     IfExpr, DottedAccess, DottedCall,
     ArrayLiteral, ArrayIndex,
     # Statements
-    Stmt, ReturnStmt, IfStmt, WhileStmt, AssignStmt, ExprStmt,
+    Stmt, ReturnStmt, IfStmt, WhileStmt, ForInStmt,ForInStmt,  AssignStmt, ExprStmt,
     LetStmt, MatchStmt, MatchArm, ElifClause, ContinueStmt, BreakStmt,
 )
 
@@ -56,7 +56,7 @@ from ir.hir import (
     HArrayLiteral, HArrayIndex,
     HExpr,
     # Statements
-    HParam, HSelfParam, HReturnStmt, HIfStmt, HWhileStmt,
+    HParam, HSelfParam, HReturnStmt, HIfStmt, HWhileStmt, HForInStmt,
     HAssignStmt, HExprStmt, HLetStmt, HMatchStmt, HMatchArm,
     HElifClause, HContinueStmt, HBreakStmt,
     HStmt,
@@ -369,6 +369,8 @@ class HIRBuilder:
             return TypeRef("[]u8")
         elif name == "byte_at":
             return TypeRef("u8")
+        elif name == "len":
+            return TypeRef("usize")
         return TypeRef("void")
 
     # --- Resolution: DottedAccess -> HFieldAccess / HUnionLiteral / HEnumVariantAccess
@@ -515,6 +517,9 @@ class HIRBuilder:
         elif isinstance(stmt, MatchStmt):
             return self._translate_match_stmt(stmt)
 
+        elif isinstance(stmt, ForInStmt):
+            return self._translate_forin_stmt(stmt)
+
         elif isinstance(stmt, ContinueStmt):
             return HContinueStmt()
 
@@ -523,6 +528,29 @@ class HIRBuilder:
 
         else:
             raise TypeCheckError(f"Statement AST tidak dikenal: {type(stmt).__name__}")
+
+    def _translate_forin_stmt(self, stmt: ForInStmt) -> HForInStmt:
+        """Translate ForInStmt -> HForInStmt dengan infer element type."""
+        iterable = self._translate_expr(stmt.iterable)
+
+        # Infer element type dari iterable
+        elem_type = self._array_element_type(iterable.type_ref.name)
+        if elem_type is None:
+            raise TypeCheckError(
+                f"for-in loop pada non-iterable type: {iterable.type_ref.name}"
+            )
+
+        # Track loop variable
+        self.local_types[stmt.var_name] = elem_type
+
+        body = [self._translate_stmt(s) for s in stmt.body]
+
+        return HForInStmt(
+            var_name=stmt.var_name,
+            iterable=iterable,
+            body=body,
+            var_type=TypeRef(elem_type)
+        )
 
     def _translate_match_stmt(self, stmt: MatchStmt) -> HMatchStmt:
         """Translate MatchStmt dengan attach metadata semantik."""

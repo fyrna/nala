@@ -248,6 +248,15 @@ class HWhileStmt:
 
 
 @dataclass
+class HForInStmt:
+    """Statement for x in arr (iterator-style loop)."""
+    var_name: str
+    iterable: HExpr
+    body: list[HStmt]
+    var_type: TypeRef  # tipe dari loop variable (element type)
+
+
+@dataclass
 class HAssignStmt:
     """Statement assignment: target = value; atau target += value;."""
     target: HExpr
@@ -310,7 +319,7 @@ class HMatchStmt:
 
 # Union type untuk semua statement HIR
 HStmt = (
-    HReturnStmt | HIfStmt | HWhileStmt | HAssignStmt | HLetStmt
+    HReturnStmt | HIfStmt | HWhileStmt | HForInStmt | HAssignStmt | HLetStmt
     | HExprStmt | HMatchStmt | HContinueStmt | HBreakStmt
 )
 
