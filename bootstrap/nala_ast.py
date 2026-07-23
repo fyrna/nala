@@ -316,7 +316,6 @@ class MethodCall:
     obj: "Expr"
     method: str
     args: list["Expr"] = field(default_factory=list)
-    struct_name: str | None = None
 
 @dataclass
 class IntrinsicCall:
@@ -488,7 +487,6 @@ class MatchArm:
     body: list["Stmt"]
     union: str | None = None   # nama union
     bind: str | None = None    # nama variabel binding untuk payload (opsional)
-    bind_type: str | None = None  # tipe Nala payload (di-attach type checker)
     guard: "Expr | None" = None # guard expression
 
 @dataclass
@@ -512,7 +510,6 @@ class MatchStmt:
     """
     expr: "Expr"
     arms: list[MatchArm]
-    union_name: str | None = None  # ← BARU: nama union (di-attach type checker)
 
 # Type alias untuk semua jenis ekspresi
 Expr = (

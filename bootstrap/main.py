@@ -4,19 +4,19 @@ bootstrap/main.py
 Entry point bootstrap Nala compiler.
 
 Arsitektur:
-    Frontend (syntax + semantik):
+    Frontend (syntax):
         lexer.py        → Token stream
-        parser.py       → AST raw (masih ada DottedAccess/DottedCall)
-        type_checker.py → AST final (resolved + metadata attached)
+        parser.py       → AST raw (pure syntax, stupid)
+
+    Checker (sema):
+        ir/hir.py           → HIR definitions (resolved + typed)
+        ir/type_checker.py  → AST → HIR translator
 
     Backend (code generation):
-        backend/codegen.py   → C code
+        backend/codegen.py   → HIR → C code
         backend/runtime.py   → C runtime (embedded)
 
-    Alur: Parser → Type Checker → Codegen
-    FILOSOFI FYRNA:
-    - Parser shall know nothing except language syntax.
-    - Codegen shall only translate. no inference, no semantic decisions.
+    Alur: Parser → Type Checker (AST→HIR) → Codegen (HIR→C)
 """
 
 from __future__ import annotations
@@ -42,13 +42,13 @@ def _collect_na_files(source_path: str) -> list[Path]:
            - Scan semua file dengan ekstensi .na atau .na.txt di folder tersebut
            - Pengurutan dilakukan secara alfabetis untuk konsistensi build
            - Hanya scan level flat (tidak rekursif ke subfolder)
-        
+
         2. Jika source_path adalah file:
            - Cek apakah file dengan nama persis tersebut ada
            - Jika tidak ada, coba tambahkan ekstensi .na
            - Jika masih tidak ada, coba tambahkan ekstensi .na.txt
            - Validasi ekstensi file harus .na atau .na.txt
-        
+
         3. Jika file tidak ditemukan sama sekali:
            - Tampilkan pesan error dan exit dengan kode 1
 
@@ -65,7 +65,6 @@ def _collect_na_files(source_path: str) -> list[Path]:
 
     # Kasus 1: Input adalah direktori
     if path.is_dir():
-        # Scan BOTH *.na and *.na.txt
         na_files = sorted(path.glob("*.na")) + sorted(path.glob("*.na.txt"))
         if not na_files:
             print(f"error: tidak ada file .na atau .na.txt di folder: {source_path}", file=sys.stderr)
@@ -74,7 +73,6 @@ def _collect_na_files(source_path: str) -> list[Path]:
 
     # Kasus 2: Input adalah file
     if not path.exists():
-        # Coba tambahkan ekstensi .na atau .na.txt
         path_with_ext = path.with_suffix(".na")
         if path_with_ext.exists():
             path = path_with_ext
@@ -101,12 +99,12 @@ def compile_to_c(source_path: str, output_path: str) -> None:
     Alur lengkap kompilasi:
         1. Kumpulkan semua file sumber (.na atau .na.txt)
         2. Parse setiap file menjadi AST (Abstract Syntax Tree)
-        3. Type checking: resolve semua referensi dan attach metadata
-        4. Generate kode C dari AST yang sudah di-type-check
+        3. Type checking: translate AST → HIR (resolved + typed)
+        4. Generate kode C dari HIR
         5. Tulis kode C ke file output
 
-    Tahapan ini memisahkan dengan jelas antara frontend (parsing + type checking)
-    dan backend (code generation), sesuai dengan arsitektur yang dirancang.
+    Tahapan ini memisahkan dengan jelas antara frontend (parsing),
+    middle (type checking / AST→HIR), dan backend (code generation).
 
     Error handling:
         - ParseError: Error sintaks di source code
@@ -125,13 +123,13 @@ def compile_to_c(source_path: str, output_path: str) -> None:
         SystemExit: Jika terjadi error di setiap tahap kompilasi
     """
     from backend.codegen import gen_program
-    from type_checker import check_program, TypeCheckError
+    from ir.type_checker import check_program, TypeCheckError
 
     # Step 1: Kumpulkan semua file sumber
     na_files = _collect_na_files(source_path)
     all_decls: list = []
 
-    # Step 2: Parse setiap file
+    # Step 2: Parse setiap file → AST Raw
     for na_file in na_files:
         source = na_file.read_text(encoding="utf-8")
 
@@ -147,18 +145,17 @@ def compile_to_c(source_path: str, output_path: str) -> None:
         all_decls.extend(decls)
         print(f"  parsed: {na_file.name} ({len(decls)} deklarasi)")
 
-    # Step 3: Frontend - Type checking
-    # Resolve DottedAccess/DottedCall + attach metadata (union_name, bind_type)
-    # Tahap ini mengubah AST raw menjadi AST final dengan semua informasi semantik
+    # Step 3: Middle — Type checking: AST → HIR
+    # Type checker membuat HIR baru, tidak mutasi AST
     try:
-        all_decls = check_program(all_decls)
+        hir_decls = check_program(all_decls)
     except TypeCheckError as e:
         print(f"error type check: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 4: Backend - Code generation
-    # Terjemahkan AST final ke kode C murni tanpa inferensi tambahan
-    c_code = gen_program(all_decls)
+    # Step 4: Backend — Code generation: HIR → C
+    # Codegen HANYA membaca HIR, tidak pernah melihat AST
+    c_code = gen_program(hir_decls)
 
     # Step 5: Tulis output
     out_file = Path(output_path)
@@ -169,12 +166,12 @@ def compile_to_c(source_path: str, output_path: str) -> None:
 if __name__ == "__main__":
     """
     Entry point utama ketika script dijalankan langsung.
-    
+
     Validasi argumen command line:
         - Harus tepat 3 argumen (termasuk script name)
         - Argumen 1: input source (folder atau file .na)
         - Argumen 2: output file C
-    
+
     Contoh penggunaan:
         python main.py . output.c       # Compile semua .na di folder saat ini
         python main.py src/ output.c    # Compile semua .na di folder src/

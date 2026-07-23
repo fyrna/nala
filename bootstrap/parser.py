@@ -42,7 +42,7 @@ from lexer import Lexer, Token, TokenKind
 from nala_ast import (
     EnumDecl, StructDecl, StructField, UnionDecl, UnionVariant,
     Expr, Stmt, Ident, StringLiteral, IntLiteral, ByteLiteral,
-    BinaryExpr, UnaryExpr, CallExpr, FieldAccess, MethodCall, IntrinsicCall,
+    BinaryExpr, UnaryExpr, CallExpr, FieldAccess, IntrinsicCall,
     IfExpr, ElifClause, MatchArm, MatchStmt, UnionLiteral,
     Param, ReturnStmt, IfStmt, WhileStmt, AssignStmt, ExprStmt, LetStmt, FnDecl, SelfParam,
     ContinueStmt, BreakStmt, StructLiteral,
@@ -77,10 +77,10 @@ class Parser:
         - _struct_name: Nama struct yang sedang diparse (untuk methods)
 
     METODE PARSING:
-        parse_program() → parse_decl() → parse_fn_decl() / parse_struct_body()
-        parse_stmt() → parse_if_stmt() / parse_for_stmt() / parse_match_stmt()
-        parse_expr() → parse_if_expr() → parse_or() → parse_and() → 
-                       parse_comparison() → parse_additive() → parse_unary() → 
+        parse_program() -> parse_decl() -> parse_fn_decl() / parse_struct_body()
+        parse_stmt() -> parse_if_stmt() / parse_for_stmt() / parse_match_stmt()
+        parse_expr() -> parse_if_expr() -> parse_or() -> parse_and() -> 
+                       parse_comparison() -> parse_additive() -> parse_unary() -> 
                        parse_primary()
 
     PRECEDENCE (dari rendah ke tinggi):
@@ -310,9 +310,9 @@ class Parser:
         Parse self parameter untuk method.
 
         Format:
-            &self         → immutable reference (default)
-            &mut self     → mutable reference
-            self          → owned value (belum support)
+            &self         -> immutable reference (default)
+            &mut self     -> mutable reference
+            self          -> owned value (belum support)
 
         Returns:
             SelfParam | None: SelfParam jika ada, None jika tidak
@@ -341,8 +341,8 @@ class Parser:
         Parse tipe data.
 
         Format:
-            ident            → simple type (i32, str, Token)
-            []ident          → array type ([]i32, []str)
+            ident            -> simple type (i32, str, Token)
+            []ident          -> array type ([]i32, []str)
 
         Returns:
             str: Nama tipe dalam bentuk string
@@ -578,12 +578,12 @@ class Parser:
         Format:
             ident
             literal (string, int, byte)
-            ident(...)          → call
-            ident!             → intrinsic
-            ident.name          → dotted access (NETRAL)
-            ident.name(...)     → dotted call (NETRAL)
-            ident { ... }       → struct literal
-            (expr)              → parenthesized expression
+            ident(...)          -> call
+            ident!             -> intrinsic
+            ident.name          -> dotted access (NETRAL)
+            ident.name(...)     -> dotted call (NETRAL)
+            ident { ... }       -> struct literal
+            (expr)              -> parenthesized expression
 
         PRINSIP PENTING: Parser TIDAK melakukan disambiguasi semantik!
         - `base.name` bisa berupa field access, enum variant, atau union variant
@@ -721,15 +721,15 @@ class Parser:
         Parse satu statement.
 
         Statement types:
-            ret expr;          → return
-            if cond { ... }    → if statement
-            for cond { ... }   → while loop
-            match expr { ... } → match statement
-            continue;          → continue
-            break;             → break
-            let name = expr;   → variable declaration
-            target = expr;     → assignment
-            expr;              → expression statement
+            ret expr;          -> return
+            if cond { ... }    -> if statement
+            for cond { ... }   -> while loop
+            match expr { ... } -> match statement
+            continue;          -> continue
+            break;             -> break
+            let name = expr;   -> variable declaration
+            target = expr;     -> assignment
+            expr;              -> expression statement
         """
         # --- Control flow statements ---
         if self._current.kind == TokenKind.IDENT:
@@ -806,9 +806,9 @@ class Parser:
         Parse variable declaration: let [mut] name [: type] = expr;
 
         Format:
-            let x = 42;                  → type inferred
-            let x: i32 = 42;             → explicit type
-            let mut count = 0;           → mutable variable
+            let x = 42;                  -> type inferred
+            let x: i32 = 42;             -> explicit type
+            let mut count = 0;           -> mutable variable
         """
         self._advance()  # konsumsi 'let'
 
