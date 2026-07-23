@@ -486,10 +486,10 @@ class MatchArm:
     """
     variant: str           # nama variant, mis. "Some", "None", "Ok"
     body: list["Stmt"]
-    union: str | None = None   # nama union (explicit, wajib di stage0)
+    union: str | None = None   # nama union
     bind: str | None = None    # nama variabel binding untuk payload (opsional)
-    bind_type: str | None = None  # ← BARU: tipe Nala payload (di-attach type checker)
-
+    bind_type: str | None = None  # tipe Nala payload (di-attach type checker)
+    guard: "Expr | None" = None # guard expression
 
 @dataclass
 class MatchStmt:

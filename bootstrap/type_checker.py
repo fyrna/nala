@@ -372,8 +372,7 @@ def _resolve_stmt(stmt, table: SymbolTable, current_struct_name: str | None, loc
     """
     return _resolve_expr(stmt, table, current_struct_name, local_types)
 
-
-def _resolve_match_stmt(stmt: MatchStmt, table: SymbolTable) -> None:
+def _resolve_match_stmt(stmt: MatchStmt, table: SymbolTable, local_types: dict[str, str]) -> None:
     """
     Attach metadata semantik ke MatchStmt dan MatchArm.
 
@@ -435,6 +434,9 @@ def _resolve_match_stmt(stmt: MatchStmt, table: SymbolTable) -> None:
                     f"\'{arm.bind}\', tapi variant ini tidak punya payload."
                 )
 
+        # Resolve guard expression (if any)
+        if arm.guard is not None:
+            arm.guard = _resolve_expr(arm.guard, table, None, local_types)
 
 def check_program(decls: list) -> list:
     """
@@ -491,5 +493,5 @@ def _resolve_fn_decl(fn: FnDecl, table: SymbolTable) -> None:
     for i, stmt in enumerate(fn.body):
         # Resolve match metadata SEBELUM recursive resolution
         if isinstance(stmt, MatchStmt):
-            _resolve_match_stmt(stmt, table)
+            _resolve_match_stmt(stmt, table, local_types)
         fn.body[i] = _resolve_stmt(stmt, table, current_struct_name, local_types)

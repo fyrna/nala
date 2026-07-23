@@ -3,4 +3,5 @@
 A Simple Language.
 in progress.
 
-[...] Phase 1 stage0
+[X] Phase 1 stage0
+[...] Phase 2 stage0

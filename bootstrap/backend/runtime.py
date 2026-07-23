@@ -204,4 +204,12 @@ void __intrinsic_print_bool(bool x)    { printf(x ? "true\n" : "false\n"); }
 /* String (NalaSlice) */
 void __intrinsic_print_string(NalaSlice x) { printf("%s\n", (char*)x.data); }
 
+/* Assert intrinsic */
+/* assert - Abort program jika condition false. */
+void __intrinsic_assert(bool cond) {
+    if (!cond) {
+        fprintf(stderr, "Assertion failed\n");
+        abort();
+    }
+}
 """

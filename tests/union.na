@@ -17,4 +17,21 @@ fn main() -> void {
             print_u8!(0);
         },
     }
+
+    // guard
+    let res: Result = Result.Ok(15);
+    match res {
+        Result.Ok(x) if x < 15 => {
+            print_string!("smoll");
+        }
+        Result.Ok(x) if x == 15 => {
+            print_string!("15 inch.");
+        }
+        Result.Ok(x) if x > 15 => {
+            print_string!("MORE than 15 inch.");
+        }
+        Result.Err(err) => {
+            print_string!(err);
+        }
+    }
 }

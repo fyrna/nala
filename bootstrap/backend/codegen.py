@@ -58,6 +58,7 @@ _INTRINSIC_MAP = {
     "as_bytes": "__intrinsic_as_bytes",
     "slice_bytes": "__intrinsic_slice_bytes",
     "byte_at": "__intrinsic_byte_at",
+    "assert": "__intrinsic_assert",
 }
 
 _BINOP_MAP = {
@@ -237,23 +238,28 @@ def gen_stmt(stmt: Stmt, indent: int = 1) -> list[str]:
     elif isinstance(stmt, BreakStmt):
         lines.append(f"{pad}break;")
     elif isinstance(stmt, MatchStmt):
-        # v0.0.3: Pattern matching pada union — pakai metadata dari type checker
-        # Metadata yang harus sudah di-attach:
-        #   - stmt.union_name: nama union (dari type checker)
-        #   - arm.bind_type: tipe Nala payload (dari type checker, None kalau unit)
+        # Butuh stmt.union_name & arm.bind_type dari type checker (lihat check_program()).
         #
-        # Generate:
-        #   UnionName __match_N = <expr>;
-        #   if (__match_N.tag == UNION_VARIANT) {
-        #       PayloadType bind = __match_N.payload.Variant;
-        #       ...body...
-        #   } else if (__match_N.tag == UNION_VARIANT2) {
-        #       ...body...
+        # PENTING: arm TIDAK dirangkai sebagai if/else-if per-tag. Kalau ada guard,
+        # tag yang sama bisa muncul di beberapa arm (mis. `Result.Ok(x) if x < 15`,
+        # `Result.Ok(x) if x == 15`, ...) — begitu guard di satu arm gagal, C harus
+        # tetap lanjut cek arm berikutnya walau tag-nya sama, bukan berhenti karena
+        # "sudah masuk cabang else-if yang tag-nya cocok". else-if biasa tidak bisa
+        # merepresentasikan ini, jadi dipakai flag __matched_N + rantai if independen:
+        #
+        #   bool __matched_N = false;
+        #   if (!__matched_N && __match_N.tag == VARIANT) {
+        #       T bind = __match_N.payload.Variant;   // opsional
+        #       if (guard) {                          // opsional
+        #           __matched_N = true;
+        #           ...body...
+        #       }
         #   }
+        #   if (!__matched_N && __match_N.tag == VARIANT2) { ... }
+        #   ...
         match_result = _fresh_temp("__match")
         match_expr = gen_expr(stmt.expr)
 
-        # Gunakan union_name dari metadata type checker
         union_name = stmt.union_name
         if union_name is None:
             raise ValueError(
@@ -263,15 +269,15 @@ def gen_stmt(stmt: Stmt, indent: int = 1) -> list[str]:
         union_c_type = _c_type(union_name)
         lines.append(f"{pad}{union_c_type} {match_result} = {match_expr};")
 
-        for i, arm in enumerate(stmt.arms):
+        matched_flag = _fresh_temp("__matched")
+        lines.append(f"{pad}bool {matched_flag} = false;")
+
+        for arm in stmt.arms:
             variant_tag = f"{union_name.upper()}_{arm.variant.upper()}"
+            lines.append(
+                f"{pad}if (!{matched_flag} && {match_result}.tag == {variant_tag}) {{"
+            )
 
-            if i == 0:
-                lines.append(f"{pad}if ({match_result}.tag == {variant_tag}) {{")
-            else:
-                lines.append(f"{pad}else if ({match_result}.tag == {variant_tag}) {{")
-
-            # Kalau ada binding, extract payload ke variabel lokal
             if arm.bind is not None:
                 if arm.bind_type is None:
                     raise ValueError(
@@ -283,9 +289,21 @@ def gen_stmt(stmt: Stmt, indent: int = 1) -> list[str]:
                 bind_c_type = _c_type(arm.bind_type)
                 lines.append(f"{pad}    {bind_c_type} {arm.bind} = {payload_field};")
 
+            has_guard = arm.guard is not None
+            if has_guard:
+                lines.append(f"{pad}    if ({gen_expr(arm.guard)}) {{")
+
+            # Set flag SEBELUM body — konsisten dengan semantik "arm ini matched",
+            # terlepas apakah body-nya sendiri nanti break/return di tengah jalan.
+            body_indent = indent + 1 + (1 if has_guard else 0)
+            body_pad = "    " * body_indent
+            lines.append(f"{body_pad}{matched_flag} = true;")
             for s in arm.body:
-                lines.extend(gen_stmt(s, indent + 1))
-            lines.append(f"{pad}}}")
+                lines.extend(gen_stmt(s, body_indent))
+
+            if has_guard:
+                lines.append(f"{pad}    }}")  # tutup guard
+            lines.append(f"{pad}}}")  # tutup arm
     else:
         raise TypeError(f"Tipe statement tidak dikenal: {type(stmt)}")
 

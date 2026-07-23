@@ -939,6 +939,12 @@ class Parser:
                     bind_name = bind_tok.text
                 self._expect(TokenKind.RPAREN)
 
+            # Cek optional guard: Union.Variant(bind) if cond => { body }
+            guard_expr = None
+            if self._current.kind == TokenKind.IDENT and self._current.text == "if":
+                self._advance()  # konsumsi 'if'
+                guard_expr = self._parse_expr()
+
             self._expect(TokenKind.FAT_ARROW)
             body = self._parse_block()
             arms.append(MatchArm(
@@ -946,6 +952,7 @@ class Parser:
                 body=body,
                 union=union_name,
                 bind=bind_name,
+                guard=guard_expr,
             ))
             if self._current.kind == TokenKind.COMMA:
                 self._advance()
