@@ -28,7 +28,7 @@ fn main() -> void {
         print_u32!(k);
     }
 
-    let arr: [3]i32 = [1, 2, 3];
+    let arr: [3]i8 = [3]i8{1, 2, 3};
     print_usize!(len!(arr));  // 3
 
     // for-in

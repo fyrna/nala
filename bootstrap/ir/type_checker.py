@@ -35,13 +35,13 @@ from nala_ast import (
     EnumDecl, StructDecl, UnionDecl, UnionVariant, StructField,
     FnDecl, Param, SelfParam,
     # Expressions
-    Expr, Ident, StringLiteral, IntLiteral, ByteLiteral,
+    Expr, Ident, StringLiteral, IntLiteral, FloatLiteral, ByteLiteral,
     BinaryExpr, UnaryExpr, CallExpr, FieldAccess, MethodCall,
     IntrinsicCall, StructLiteral, UnionLiteral, EnumVariantAccess,
     IfExpr, DottedAccess, DottedCall,
     ArrayLiteral, ArrayIndex,
     # Statements
-    Stmt, ReturnStmt, IfStmt, WhileStmt, ForInStmt,ForInStmt,  AssignStmt, ExprStmt,
+    Stmt, ReturnStmt, IfStmt, WhileStmt, ForInStmt, AssignStmt, ExprStmt,
     LetStmt, MatchStmt, MatchArm, ElifClause, ContinueStmt, BreakStmt,
 )
 
@@ -49,7 +49,7 @@ from ir.hir import (
     # Type
     TypeRef,
     # Expressions
-    HIdent, HStringLiteral, HIntLiteral, HByteLiteral,
+    HIdent, HStringLiteral, HIntLiteral, HFloatLiteral, HByteLiteral,
     HFieldAccess, HBinaryExpr, HUnaryExpr, HCallExpr,
     HMethodCall, HIntrinsicCall, HStructLiteral, HUnionLiteral,
     HEnumVariantAccess, HIfExpr,
@@ -172,6 +172,8 @@ class HIRBuilder:
             return TypeRef("str")
         elif isinstance(expr, IntLiteral):
             return TypeRef("i32")
+        elif isinstance(expr, FloatLiteral):
+            return TypeRef("f32")
         elif isinstance(expr, ByteLiteral):
             return TypeRef("u8")
         elif isinstance(expr, Ident):
@@ -186,11 +188,10 @@ class HIRBuilder:
         elif isinstance(expr, EnumVariantAccess):
             return TypeRef(expr.enum_name)
         elif isinstance(expr, ArrayLiteral):
-            # Infer dari elemen pertama kalau ada
-            if expr.elements:
-                elem_type = self._infer_expr_type(expr.elements[0]).name
-                return TypeRef(f"[{len(expr.elements)}]{elem_type}")
-            return TypeRef("[0]void")
+            # Size dan element type sudah eksplisit di literal-nya sendiri
+            # ([N]T{...}) -- tidak perlu (dan tidak boleh) ditebak dari
+            # elemen pertama.
+            return TypeRef(f"[{expr.size}]{expr.element_type}")
         return TypeRef("void")  # fallback
 
     # --- Translation: Expressions ---
@@ -208,6 +209,9 @@ class HIRBuilder:
 
         elif isinstance(expr, IntLiteral):
             return HIntLiteral(value=expr.value)
+
+        elif isinstance(expr, FloatLiteral):
+            return HFloatLiteral(value=expr.value)
 
         elif isinstance(expr, ByteLiteral):
             return HByteLiteral(value=expr.value)
@@ -304,11 +308,18 @@ class HIRBuilder:
             )
 
         elif isinstance(expr, ArrayLiteral):
-            # Infer type dari context atau dari elemen
+            # Size dan element type eksplisit dari literal ([N]T{...}) --
+            # jumlah elemen wajib persis sama dengan N. Stage0 tidak
+            # mendukung auto-fill/padding sisa slot dengan default value;
+            # mismatch adalah compile error.
+            if len(expr.elements) != expr.size:
+                raise TypeCheckError(
+                    f"Jumlah elemen array tidak cocok: dideklarasikan "
+                    f"[{expr.size}]{expr.element_type}, tapi diberikan "
+                    f"{len(expr.elements)} elemen"
+                )
             elements = [self._translate_expr(e) for e in expr.elements]
-            # Default: infer dari elemen pertama
-            elem_type = elements[0].type_ref.name if elements else "void"
-            array_type = f"[{len(elements)}]{elem_type}"
+            array_type = f"[{expr.size}]{expr.element_type}"
             return HArrayLiteral(
                 elements=elements,
                 type_ref=TypeRef(array_type)

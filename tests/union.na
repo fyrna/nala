@@ -6,7 +6,7 @@ fn main() -> void {
     let opt1: Option = Option.Some(42);
     
     // union construction unit variant
-    let opt2: Option = Option.None();
+    let opt2: Option = Option.None;
     
     // pattern match
     match opt1 {

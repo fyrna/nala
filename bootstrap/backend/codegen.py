@@ -28,7 +28,7 @@ from ir.hir import (
     # Type
     TypeRef,
     # Expressions
-    HIdent, HStringLiteral, HIntLiteral, HByteLiteral,
+    HIdent, HStringLiteral, HIntLiteral, HFloatLiteral, HByteLiteral,
     HFieldAccess, HBinaryExpr, HUnaryExpr, HCallExpr,
     HMethodCall, HIntrinsicCall, HStructLiteral, HUnionLiteral,
     HEnumVariantAccess, HIfExpr,
@@ -281,6 +281,9 @@ def gen_expr(expr: HExpr) -> str:
     elif isinstance(expr, HIntLiteral):
         return expr.value
 
+    elif isinstance(expr, HFloatLiteral):
+        return expr.value
+
     elif isinstance(expr, HByteLiteral):
         return f"'{expr.value}'"
 
@@ -336,7 +339,6 @@ def gen_expr(expr: HExpr) -> str:
             raise ValueError(f"Intrinsic belum didukung: {expr.name}")
         args = ", ".join(gen_expr(a) for a in expr.args)
         return f"{c_name}({args})"
-    # ... rest
 
     elif isinstance(expr, HCallExpr):
         args_str = ", ".join(gen_expr(a) for a in expr.args)

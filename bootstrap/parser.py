@@ -41,7 +41,7 @@ from __future__ import annotations
 from lexer import Lexer, Token, TokenKind
 from nala_ast import (
     EnumDecl, StructDecl, StructField, UnionDecl, UnionVariant,
-    Expr, Stmt, Ident, StringLiteral, IntLiteral, ByteLiteral,
+    Expr, Stmt, Ident, StringLiteral, IntLiteral, FloatLiteral, ByteLiteral,
     BinaryExpr, UnaryExpr, CallExpr, FieldAccess, IntrinsicCall,
     IfExpr, ElifClause, MatchArm, MatchStmt, UnionLiteral,
     Param, ReturnStmt, IfStmt, WhileStmt, ForInStmt, AssignStmt, ExprStmt, LetStmt, FnDecl, SelfParam,
@@ -670,26 +670,64 @@ class Parser:
         elif self._current.kind == TokenKind.INT_LITERAL:
             tok = self._advance()
             return IntLiteral(tok.text)
+        elif self._current.kind == TokenKind.FLOAT_LITERAL:
+            tok = self._advance()
+            return FloatLiteral(tok.text)
         elif self._current.kind == TokenKind.BYTE_LITERAL:
             tok = self._advance()
             value = tok.text[1:-1]  # Remove quotes
             return ByteLiteral(value)
-        elif self._current.kind == TokenKind.INT_LITERAL:
-            tok = self._advance()
-            return Ident(tok.text)
 
-        # --- Array literal: [1, 2, 3] ---
+        # --- Array literal: [N]T{val1, val2, ...} ---
+        # Satu-satunya bentuk array literal yang valid. Size (N) dan
+        # element type (T) wajib eksplisit -- tidak pernah ditebak dari
+        # elemen pertama seperti syntax lama [1, 2, 3].
         elif self._current.kind == TokenKind.LBRACKET:
             self._advance()  # konsumsi '['
+
+            # N wajib angka literal eksplisit (stage0 belum dukung '_')
+            if self._current.kind != TokenKind.INT_LITERAL:
+                raise ParseError(
+                    "Array literal wajib eksplisit ukurannya: [N]T{...}. "
+                    f"Diharapkan angka setelah '[', tapi ketemu "
+                    f"{self._current.kind.name} ({self._current.text!r}) "
+                    f"di baris {self._current.span.line}"
+                )
+            size_tok = self._advance()
+            size = int(size_tok.text)
+
+            if self._current.kind != TokenKind.RBRACKET:
+                raise ParseError(
+                    f"Array literal wajib format [N]T{{...}} -- setelah "
+                    f"ukuran ({size_tok.text}) diharapkan ']', tapi ketemu "
+                    f"{self._current.kind.name} ({self._current.text!r}) "
+                    f"di baris {self._current.span.line}. "
+                    f"Syntax lama tanpa tipe eksplisit (mis. [1, 2, 3]) "
+                    f"sudah tidak didukung -- tulis tipe elemennya, "
+                    f"contoh: [3]i32{{1, 2, 3}}"
+                )
+            self._advance()  # konsumsi ']'
+
+            # T wajib tipe eksplisit
+            type_tok = self._expect(TokenKind.IDENT)
+            element_type = type_tok.text
+
+            # {val1, val2, ...}
+            self._expect(TokenKind.LBRACE)
             elements = []
-            while self._current.kind != TokenKind.RBRACKET:
+            while self._current.kind != TokenKind.RBRACE:
                 elements.append(self._parse_expr())
                 if self._current.kind == TokenKind.COMMA:
                     self._advance()
                 else:
                     break
-            self._expect(TokenKind.RBRACKET)
-            return ArrayLiteral(elements=elements)
+            self._expect(TokenKind.RBRACE)
+
+            return ArrayLiteral(
+                size=size,
+                element_type=element_type,
+                elements=elements,
+            )
 
         # --- Parenthesized expression ---
         elif self._current.kind == TokenKind.LPAREN:

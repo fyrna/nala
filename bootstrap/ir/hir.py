@@ -78,6 +78,19 @@ class HIntLiteral:
 
 
 @dataclass
+class HFloatLiteral:
+    """
+    Literal float -- sudah typed.
+
+    Mengikuti pola HIntLiteral: type_ref default "f32", belum
+    context-aware terhadap tipe target (mis. f64). Perbaikan supaya
+    literal numerik infer dari context adalah isu terpisah.
+    """
+    value: str
+    type_ref: TypeRef = field(default_factory=lambda: TypeRef("f32"))
+
+
+@dataclass
 class HByteLiteral:
     """Literal byte (karakter ASCII tunggal)."""
     value: str
@@ -192,7 +205,7 @@ class HIfExpr:
 
 # Union type untuk semua ekspresi HIR
 HExpr = (
-    HIdent | HStringLiteral | HIntLiteral | HByteLiteral
+    HIdent | HStringLiteral | HIntLiteral | HFloatLiteral | HByteLiteral
     | HFieldAccess | HBinaryExpr | HUnaryExpr | HCallExpr
     | HMethodCall | HIntrinsicCall | HStructLiteral | HUnionLiteral
     | HEnumVariantAccess | HIfExpr

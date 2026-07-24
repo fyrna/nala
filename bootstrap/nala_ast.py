@@ -206,6 +206,28 @@ class IntLiteral:
 
 
 @dataclass
+class FloatLiteral:
+    """
+    Literal float, misal 3.14, 0.5.
+
+    Float di Nala stage0 diasumsikan f32 (32-bit), mengikuti pola
+    yang sama seperti IntLiteral (yang diasumsikan i32) -- keduanya
+    BELUM context-aware terhadap tipe target (mis. `let x: f64 = 3.14`
+    tetap membawa asumsi f32 di level literal ini). Perbaikan supaya
+    literal numerik benar-benar infer dari context (bukan hardcode
+    default) adalah isu terpisah, belum ditangani di sini.
+
+    Format:
+        - Harus ada digit di kedua sisi titik (3.14, 0.5)
+        - Belum support exponent (1e10)
+        - Belum support underscore separator
+
+    Contoh: 3.14, 0.5, 100.0
+    """
+    value: str
+
+
+@dataclass
 class ByteLiteral:
     """
     Literal karakter tunggal, misal 'a' atau '0'.
@@ -381,20 +403,27 @@ class UnionLiteral:
 @dataclass
 class ArrayLiteral:
     """
-    Array literal: [1, 2, 3].
+    Array literal: [N]T{val1, val2, ...}.
 
-    Fixed-size array literal dengan elemen-elemen yang diberikan.
-    Type dan size di-infer oleh type checker dari context.
+    Fixed-size array literal dengan size (N) dan element type (T)
+    eksplisit -- tidak pernah di-infer/ditebak dari elemen pertama.
+    Ini satu-satunya bentuk array literal yang valid; syntax lama
+    tanpa N/T eksplisit ([1, 2, 3]) sudah dihapus.
 
     Contoh:
-        [1, 2, 3]           → elements=[1, 2, 3]
-        ["a", "b"]          → elements=["a", "b"]
-        []                  → elements=[] (empty array, size 0)
+        [3]i32{1, 2, 3}     → size=3, element_type="i32", elements=[1, 2, 3]
+        [2]str{"a", "b"}    → size=2, element_type="str", elements=["a", "b"]
+        [0]i32{}            → size=0, element_type="i32", elements=[]
 
-    Type checker akan infer:
-        - [1, 2, 3] sebagai [3]i32 (kalau context mengharapkan i32)
-        - ["a", "b"] sebagai [2]str
+    Aturan:
+        - Jumlah elemen di elements wajib PERSIS SAMA dengan size.
+          Mismatch adalah compile error (stage0 tidak mendukung
+          auto-fill/padding sisa slot dengan default value).
+        - Validasi tipe per-elemen terhadap element_type belum
+          di-enforce di stage0 (ditangani lebih ketat nanti).
     """
+    size: int
+    element_type: str
     elements: list["Expr"]
 
 
@@ -552,7 +581,7 @@ class MatchStmt:
 # Type alias untuk semua jenis ekspresi
 Expr = (
     BinaryExpr | UnaryExpr | CallExpr | MethodCall | IntrinsicCall | Ident
-    | StringLiteral | IntLiteral | ByteLiteral | FieldAccess | IfExpr
+    | StringLiteral | IntLiteral | FloatLiteral | ByteLiteral | FieldAccess | IfExpr
     | StructLiteral | UnionLiteral | EnumVariantAccess
     | DottedAccess | DottedCall
     | ArrayLiteral | ArrayIndex
