@@ -1,0 +1,111 @@
+fn main() -> void {
+	// --- NOT ---
+	
+	if !true {
+	    print_string!("FAIL: !true should be false");
+	} else {
+	    print_string!("PASS: !true == false");
+	}
+	
+	if !false {
+	    print_string!("PASS: !false == true");
+	} else {
+	    print_string!("FAIL: !false should be true");
+	}
+	
+	// --- AND + NOT ---
+	
+	if !true and !true {
+	    print_string!("FAIL: !true and !true should be false");
+	} else {
+	    print_string!("PASS: !true and !true == false");
+	}
+	
+	if !true and !false {
+	    print_string!("FAIL: !true and !false should be false");
+	} else {
+	    print_string!("PASS: !true and !false == false");
+	}
+	
+	if !false and !true {
+	    print_string!("FAIL: !false and !true should be false");
+	} else {
+	    print_string!("PASS: !false and !true == false");
+	}
+	
+	if !false and !false {
+	    print_string!("PASS: !false and !false == true");
+	} else {
+	    print_string!("FAIL: !false and !false should be true");
+	}
+	
+	// --- OR + NOT ---
+	
+	if !true or !true {
+	    print_string!("FAIL: !true or !true should be false");
+	} else {
+	    print_string!("PASS: !true or !true == false");
+	}
+	
+	if !true or !false {
+	    print_string!("PASS: !true or !false == true");
+	} else {
+	    print_string!("FAIL: !true or !false should be true");
+	}
+	
+	if !false or !true {
+	    print_string!("PASS: !false or !true == true");
+	} else {
+	    print_string!("FAIL: !false or !true should be true");
+	}
+	
+	if !false or !false {
+	    print_string!("PASS: !false or !false == true");
+	} else {
+	    print_string!("FAIL: !false or !false should be true");
+	}
+	
+	// --- Precedence (! > and > or) ---
+	
+	if true or false and false {
+	    print_string!("PASS: true or false and false == true");
+	} else {
+	    print_string!("FAIL: true or false and false should be true");
+	}
+	
+	if false and true or true {
+	    print_string!("PASS: false and true or true == true");
+	} else {
+	    print_string!("FAIL: false and true or true should be true");
+	}
+	
+	if !false and false {
+	    print_string!("FAIL: !false and false should be false");
+	} else {
+	    print_string!("PASS: !false and false == false");
+	}
+	
+	if !true or false {
+	    print_string!("FAIL: !true or false should be false");
+	} else {
+	    print_string!("PASS: !true or false == false");
+	}
+	
+	if !false or false {
+	    print_string!("PASS: !false or false == true");
+	} else {
+	    print_string!("FAIL: !false or false should be true");
+	}
+	
+	if !(true and false) {
+	    print_string!("PASS: !(true and false) == true");
+	} else {
+	    print_string!("FAIL: !(true and false) should be true");
+	}
+	
+	if !(true or false) {
+	    print_string!("FAIL: !(true or false) should be false");
+	} else {
+	    print_string!("PASS: !(true or false) == false");
+	}
+}

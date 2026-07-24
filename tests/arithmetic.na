@@ -2,26 +2,20 @@
 
 fn main() -> void {
     let a: u32 = 10;
-    let b: u32 = 3;
+    let b: u32 = 5;
 
-    // plus
-    let sum: u32 = a + b;
-    print_u32!(sum);
+    // add
+    print_u32!(a + b); // 15
 
-    // cmp
-    if a > b {
-        print_u8!(1);
-    }
+    // TODO: sub
+    // print_u32!(a - b); // 5
 
-    if a == 10 {
-        print_u8!(2);
-    }
+    // TODO: mul
+    // print_u32!(a * b); // 50
 
-    if a >= b {
-        print_u8!(3);
-    }
+    // TODO: div
+    // print_u32!(a / b); // 2
 
-    if b <= a {
-        print_u8!(4);
-    }
+    // TODO: mod
+    // print_u32!(a % a); // 1
 }

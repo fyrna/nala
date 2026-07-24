@@ -1,0 +1,113 @@
+fn main() -> void {
+	let a: u32 = 10;
+	let b: u32 = 5;
+	let c: u32 = 10;
+	
+	// --- == ---
+
+	if a == c {
+	    print_string!("PASS: a == c == true");
+	} else {
+	    print_string!("FAIL: a == c should be true");
+	}
+	
+	if a == b {
+	    print_string!("FAIL: a == b should be false");
+	} else {
+	    print_string!("PASS: a == b == false");
+	}
+	
+	// --- TODO: != ---
+	
+	// if a != b {
+	//     print_string!("PASS: a != b == true");
+	// } else {
+	//     print_string!("FAIL: a != b should be true");
+	// }
+	
+	// if a != c {
+	//     print_string!("FAIL: a != c should be false");
+	// } else {
+	//     print_string!("PASS: a != c == false");
+	// }
+	
+	// --- > ---
+	
+	if a > b {
+	    print_string!("PASS: a > b == true");
+	} else {
+	    print_string!("FAIL: a > b should be true");
+	}
+	
+	if b > a {
+	    print_string!("FAIL: b > a should be false");
+	} else {
+	    print_string!("PASS: b > a == false");
+	}
+	
+	if a > c {
+	    print_string!("FAIL: a > c should be false");
+	} else {
+	    print_string!("PASS: a > c == false");
+	}
+	
+	// --- < ---
+	
+	if b < a {
+	    print_string!("PASS: b < a == true");
+	} else {
+	    print_string!("FAIL: b < a should be true");
+	}
+	
+	if a < b {
+	    print_string!("FAIL: a < b should be false");
+	} else {
+	    print_string!("PASS: a < b == false");
+	}
+	
+	if a < c {
+	    print_string!("FAIL: a < c should be false");
+	} else {
+	    print_string!("PASS: a < c == false");
+	}
+	
+	// --- >= ---
+	
+	if a >= b {
+	    print_string!("PASS: a >= b == true");
+	} else {
+	    print_string!("FAIL: a >= b should be true");
+	}
+	
+	if a >= c {
+	    print_string!("PASS: a >= c == true");
+	} else {
+	    print_string!("FAIL: a >= c should be true");
+	}
+	
+	if b >= a {
+	    print_string!("FAIL: b >= a should be false");
+	} else {
+	    print_string!("PASS: b >= a == false");
+	}
+	
+	// --- <= ---
+	
+	if b <= a {
+	    print_string!("PASS: b <= a == true");
+	} else {
+	    print_string!("FAIL: b <= a should be true");
+	}
+	
+	if a <= c {
+	    print_string!("PASS: a <= c == true");
+	} else {
+	    print_string!("FAIL: a <= c should be true");
+	}
+	
+	if a <= b {
+	    print_string!("FAIL: a <= b should be false");
+	} else {
+	    print_string!("PASS: a <= b == false");
+	}
+}
