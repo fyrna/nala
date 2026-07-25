@@ -15,6 +15,7 @@ from nala_ast import (
     ContinueStmt, BreakStmt, StructLiteral,
     DottedAccess, DottedCall,
     ArrayLiteral, ArrayIndex,
+    UseDecl,
 )
 
 class ParseError(Exception):
@@ -62,6 +63,8 @@ class Parser:
     def _parse_decl(self):
         if self._current.kind == TokenKind.FN:
             return self._parse_fn_decl(is_internal=False)
+        if self._current.kind == TokenKind.USE:
+            return self._parse_use_decl()
         if self._current.kind == TokenKind.IDENT and self._current.text == "internal":
             self._advance()
             self._expect(TokenKind.FN)
@@ -84,6 +87,21 @@ class Parser:
         if self._current.kind == TokenKind.SEMICOLON:
             self._advance()
         return result
+
+    def _parse_use_decl(self) -> UseDecl:
+        self._expect(TokenKind.USE)
+        parts = [self._expect(TokenKind.IDENT).text]
+        while self._current.kind == TokenKind.DOT:
+            self._advance()
+            parts.append(self._expect(TokenKind.IDENT).text)
+        module_path = ".".join(parts)
+        alias = None
+        if self._current.kind == TokenKind.IDENT and self._current.text == "as":
+            self._advance()
+            alias = self._expect(TokenKind.IDENT).text
+        if self._current.kind == TokenKind.SEMICOLON:
+            self._advance()
+        return UseDecl(module_path, alias)
 
     def _parse_fn_decl(self, is_internal: bool, fn_already_consumed: bool = False, struct_name: str | None = None):
         if not fn_already_consumed:
@@ -300,22 +318,30 @@ class Parser:
                 return BoolLiteral(True)
             if name_tok.text == "false":
                 return BoolLiteral(False)
-            # Dotted access/call (neutral)
+            # Dotted access/call with chaining support (std.mem.copy, models.User)
             if self._current.kind == TokenKind.DOT:
-                self._advance()
-                name_tok2 = self._expect(TokenKind.IDENT)
-                if self._current.kind == TokenKind.LPAREN:
+                parts = [name_tok.text]
+                while self._current.kind == TokenKind.DOT:
                     self._advance()
-                    args = []
-                    while self._current.kind != TokenKind.RPAREN:
-                        args.append(self._parse_expr())
-                        if self._current.kind == TokenKind.COMMA:
-                            self._advance()
-                        else:
-                            break
-                    self._expect(TokenKind.RPAREN)
-                    return DottedCall(Ident(name_tok.text), name_tok2.text, args)
-                return DottedAccess(Ident(name_tok.text), name_tok2.text)
+                    parts.append(self._expect(TokenKind.IDENT).text)
+                    if self._current.kind == TokenKind.LPAREN:
+                        self._advance()
+                        args = []
+                        while self._current.kind != TokenKind.RPAREN:
+                            args.append(self._parse_expr())
+                            if self._current.kind == TokenKind.COMMA:
+                                self._advance()
+                            else:
+                                break
+                        self._expect(TokenKind.RPAREN)
+                        base = Ident(parts[0])
+                        for part in parts[1:-1]:
+                            base = DottedAccess(base, part)
+                        return DottedCall(base, parts[-1], args)
+                base = Ident(parts[0])
+                for part in parts[1:-1]:
+                    base = DottedAccess(base, part)
+                return DottedAccess(base, parts[-1])
             # Intrinsic
             if self._current.kind == TokenKind.BANG:
                 self._advance()

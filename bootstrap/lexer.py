@@ -47,6 +47,8 @@ class TokenKind(Enum):
     LET = auto()
     MUT = auto()
     FN = auto()
+    USE = auto()
+    AS = auto()
     UNKNOWN = auto()
     EOF = auto()
 
@@ -54,6 +56,8 @@ _KEYWORDS = {
     "let": TokenKind.LET,
     "mut": TokenKind.MUT,
     "fn": TokenKind.FN,
+    "use": TokenKind.USE,
+    "as": TokenKind.AS,
 }
 
 @dataclass(frozen=True)

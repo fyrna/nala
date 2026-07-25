@@ -2,11 +2,8 @@
 bootstrap/ir/typecheck/symbol_table.py
 
 Tabel simbol untuk lookup deklarasi top-level -- union, enum, struct, fn.
-
-Dipisah dari type_checker.py lama sebagai bagian dari rework "soal tipe"
-(lihat type_compat.py untuk verifikasi kecocokan tipe, inference.py untuk
-penebakan tipe ekspresi). Modul ini murni indexing, tidak menyentuh AST/HIR
-translation sama sekali.
+Multi-module aware: tracks which module each decl belongs to,
+and resolves use aliases per module.
 """
 
 from __future__ import annotations
@@ -40,6 +37,11 @@ class SymbolTable:
           param_types di sini TIDAK termasuk self -- cuma parameter selain
           self (konsisten dengan bagaimana method dipanggil: p.method(args),
           args tidak termasuk p itu sendiri).
+
+    Module-aware additions:
+        - module_decls: dict[module_name, list[decl]] -- decls per module
+        - module_uses: dict[module_name, list[UseDecl]] -- use aliases per module
+        - item_to_module: dict[item_name, module_name] -- which module owns each item
     """
 
     def __init__(self) -> None:
@@ -57,6 +59,11 @@ class SymbolTable:
 
         # (struct_name, method_name) -> (list of param type_name [tanpa self], return_type)
         self.method_signatures: dict[tuple[str, str], tuple[list[str], str]] = {}
+
+        # Module-aware additions
+        self.module_decls: dict[str, list] = {}
+        self.module_uses: dict[str, list] = {}
+        self.item_to_module: dict[str, str] = {}
 
     @classmethod
     def build(cls, decls: list) -> "SymbolTable":
@@ -91,3 +98,57 @@ class SymbolTable:
                     param_types = [p.type_name for p in decl.params]
                     table.fn_signatures[decl.name] = (param_types, decl.return_type)
         return table
+
+    @classmethod
+    def build_modules(cls, module_decls: dict[str, list], module_uses: dict[str, list]) -> "SymbolTable":
+        """Build SymbolTable from multi-module declarations."""
+        all_decls = []
+        for decls in module_decls.values():
+            all_decls.extend(decls)
+        table = cls.build(all_decls)
+        table.module_decls = module_decls
+        table.module_uses = module_uses
+        # Map item name -> module name for quick lookup
+        for module_name, decls in module_decls.items():
+            for decl in decls:
+                if hasattr(decl, "name"):
+                    table.item_to_module[decl.name] = module_name
+        return table
+
+    def resolve_alias(self, current_module: str, alias: str) -> str | None:
+        """Resolve use alias to target module name."""
+        uses = self.module_uses.get(current_module, [])
+        for use in uses:
+            if use.alias is not None:
+                if use.alias == alias:
+                    return use.module_path
+            else:
+                default_alias = use.module_path.split(".")[-1]
+                if default_alias == alias:
+                    return use.module_path
+        return None
+
+    def find_item_in_module(self, module_name: str, item_name: str):
+        """Find top-level decl by name in a specific module."""
+        decls = self.module_decls.get(module_name, [])
+        for decl in decls:
+            if getattr(decl, "name", None) == item_name:
+                return decl
+        return None
+
+    def find_variant_in_module(self, module_name: str, variant_name: str):
+        """Find if variant_name is a variant of any union/enum in module."""
+        decls = self.module_decls.get(module_name, [])
+        for decl in decls:
+            if isinstance(decl, UnionDecl):
+                for v in decl.variants:
+                    if v.name == variant_name:
+                        return ("union", decl.name, v)
+            elif isinstance(decl, EnumDecl):
+                if variant_name in decl.variants:
+                    return ("enum", decl.name, variant_name)
+        return None
+
+    def is_valid_std_namespace(self, namespace: str) -> bool:
+        """Validate std.* namespace path. Stage0: std prefix always valid."""
+        return namespace.startswith("std.") or namespace == "std"

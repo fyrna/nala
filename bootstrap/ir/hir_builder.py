@@ -66,12 +66,14 @@ class HIRBuilder:
         - table: SymbolTable untuk lookup top-level declarations
         - local_types: dict[str, str] -- tipe variabel lokal (nama -> type_name)
         - current_struct_name: str | None -- struct yang sedang diproses (untuk self)
+        - current_module: str | None -- module yang sedang diproses (untuk use alias)
     """
 
-    def __init__(self, table: SymbolTable) -> None:
+    def __init__(self, table: SymbolTable, current_module: str | None = None) -> None:
         self.table = table
         self.local_types: dict[str, str] = {}
         self.current_struct_name: str | None = None
+        self.current_module = current_module
 
     # --- Helper: TypeRef ---
 
@@ -409,98 +411,238 @@ class HIRBuilder:
 
     # --- Resolution: DottedAccess -> HFieldAccess / HUnionLiteral / HEnumVariantAccess
 
+    def _flatten_dotted(self, node) -> list[str]:
+        """Flatten nested DottedAccess/DottedCall into list of parts."""
+        if isinstance(node, Ident):
+            return [node.name]
+        elif isinstance(node, DottedAccess):
+            return self._flatten_dotted(node.base) + [node.name]
+        else:
+            raise TypeCheckError(f"Invalid dotted expression: {type(node).__name__}")
+
+    def _resolve_module_item(self, module_name: str, item_name: str, is_call: bool, args: list = None) -> HExpr:
+        """Resolve an item from a specific module."""
+        if args is None:
+            args = []
+
+        # Try as top-level decl
+        item = self.table.find_item_in_module(module_name, item_name)
+        if item is not None:
+            if isinstance(item, FnDecl):
+                if not is_call:
+                    raise TypeCheckError(f"Function '{item_name}' must be called")
+                sig = self.table.fn_signatures.get(item_name)
+                if sig is not None:
+                    param_types, return_type = sig
+                    if len(args) != len(param_types):
+                        raise TypeCheckError(
+                            f"Pemanggilan '{item_name}' dengan {len(args)} argumen, "
+                            f"tapi fungsi ini butuh {len(param_types)} parameter"
+                        )
+                    hir_args = [
+                        self._translate_expr(a, expected_type=pt)
+                        for a, pt in zip(args, param_types)
+                    ]
+                    for i, (arg, pt) in enumerate(zip(hir_args, param_types)):
+                        self._check_assignable(
+                            pt, arg,
+                            context=f"argumen ke-{i + 1} pemanggilan '{item_name}'"
+                        )
+                    return HCallExpr(callee=item_name, args=hir_args, type_ref=TypeRef(return_type))
+                else:
+                    hir_args = [self._translate_expr(a) for a in args]
+                    return HCallExpr(callee=item_name, args=hir_args, type_ref=TypeRef("void"))
+
+        # Try as union/enum variant
+        variant_info = self.table.find_variant_in_module(module_name, item_name)
+        if variant_info is not None:
+            kind, type_name, variant = variant_info
+            if kind == "union":
+                if is_call:
+                    payload_types = getattr(variant, "payload_types", [])
+                    if payload_types:
+                        if len(args) != 1:
+                            raise TypeCheckError(
+                                f"Union variant '{item_name}' expects 1 payload"
+                            )
+                        payload = self._translate_expr(args[0], expected_type=payload_types[0])
+                        self._check_assignable(
+                            payload_types[0], payload,
+                            context=f"payload of '{item_name}'"
+                        )
+                    else:
+                        if args:
+                            raise TypeCheckError(
+                                f"Union variant '{item_name}' is unit variant"
+                            )
+                        payload = None
+                    return HUnionLiteral(
+                        union_name=type_name, variant_name=item_name, payload=payload,
+                        type_ref=TypeRef(type_name)
+                    )
+                else:
+                    return HUnionLiteral(
+                        union_name=type_name, variant_name=item_name, payload=None,
+                        type_ref=TypeRef(type_name)
+                    )
+            elif kind == "enum":
+                if is_call:
+                    raise TypeCheckError(f"Enum variant '{item_name}' doesn't have payload")
+                return HEnumVariantAccess(
+                    enum_name=type_name, variant_name=item_name,
+                    type_ref=TypeRef(type_name)
+                )
+
+        raise TypeCheckError(f"'{item_name}' not found in module '{module_name}'")
+
     def _resolve_dotted_access(self, node: DottedAccess) -> HExpr:
         """Resolve DottedAccess (tanpa kurung)."""
-        base_name = node.base.name if isinstance(node.base, Ident) else None
+        parts = self._flatten_dotted(node)
+        base_name = parts[0]
 
-        # 1. Union -- unit variant
-        if base_name is not None and base_name in self.table.union_names:
-            known = self.table.union_variants.get(base_name, set())
-            if node.name not in known:
-                raise TypeCheckError(
-                    f"'{node.name}' bukan variant di union '{base_name}' "
-                    f"(yang ada: {sorted(known)})"
-                )
-            return HUnionLiteral(
-                union_name=base_name, variant_name=node.name, payload=None,
-                type_ref=TypeRef(base_name)
+        # Case A: Module alias (local.* via use) — alias.item
+        if self.current_module and len(parts) == 2:
+            target_module = self.table.resolve_alias(self.current_module, base_name)
+            if target_module is not None:
+                return self._resolve_module_item(target_module, parts[1], is_call=False)
+
+        # Case B: std.* fully qualified path (2+ parts)
+        if base_name == "std":
+            if len(parts) < 2:
+                raise TypeCheckError("std module name cannot be used alone")
+            namespace = ".".join(parts[:-1])
+            item_name = parts[-1]
+            # Check if namespace exists in module_decls
+            if namespace not in self.table.module_decls:
+                raise TypeCheckError(f"Unknown std module: {namespace}")
+            # Look up item in that module
+            decl = self.table.find_item_in_module(namespace, item_name)
+            if decl is None:
+                raise TypeCheckError(f"Item '{item_name}' not found in std module '{namespace}'")
+            # For stage0, only support function calls via DottedCall, not bare access.
+            # But we might allow type names (Struct/Union/Enum) as expressions? Not yet.
+            raise TypeCheckError(
+                f"std.{item_name} must be called with parentheses (function) "
+                f"or used as a type (not yet supported)"
             )
 
-        # 2. Enum -- variant access
-        if base_name is not None and base_name in self.table.enum_names:
-            known = self.table.enum_variants.get(base_name, set())
-            if node.name not in known:
-                raise TypeCheckError(
-                    f"'{node.name}' bukan variant di enum '{base_name}' "
-                    f"(yang ada: {sorted(known)})"
-                )
-            return HEnumVariantAccess(
-                enum_name=base_name, variant_name=node.name,
-                type_ref=TypeRef(base_name)
-            )
+        # Case C: 2-part — reuse existing logic
+        if len(parts) == 2:
+            # Union -- unit variant
+            if base_name in self.table.union_names:
+                known = self.table.union_variants.get(base_name, set())
+                if parts[1] in known:
+                    return HUnionLiteral(
+                        union_name=base_name, variant_name=parts[1], payload=None,
+                        type_ref=TypeRef(base_name)
+                    )
+            # Enum -- variant access
+            if base_name in self.table.enum_names:
+                known = self.table.enum_variants.get(base_name, set())
+                if parts[1] in known:
+                    return HEnumVariantAccess(
+                        enum_name=base_name, variant_name=parts[1],
+                        type_ref=TypeRef(base_name)
+                    )
+            # Instance/variable -- field access
+            base_expr = self._translate_expr(Ident(base_name))
+            field_type = self._infer_field_type(base_expr, parts[1])
+            return HFieldAccess(obj=base_expr, field=parts[1], type_ref=field_type)
 
-        # 3. Instance/variable -- field access
-        base_expr = self._translate_expr(node.base)
-        field_type = self._infer_field_type(base_expr, node.name)
-        return HFieldAccess(obj=base_expr, field=node.name, type_ref=field_type)
-
-    # --- Resolution: DottedCall -> HMethodCall / HUnionLiteral
+        raise TypeCheckError(f"Cannot resolve dotted access: {'.'.join(parts)}")
 
     def _resolve_dotted_call(self, node: DottedCall) -> HExpr:
         """Resolve DottedCall (dengan kurung)."""
-        base_name = node.base.name if isinstance(node.base, Ident) else None
+        parts = self._flatten_dotted(node.base) + [node.name]
+        base_name = parts[0]
 
-        # 1. Union -- variant dengan payload
-        if base_name is not None and base_name in self.table.union_names:
-            known = self.table.union_variants.get(base_name, set())
-            if node.name not in known:
+        # Case A: Module alias (local.* via use) — alias.item(args)
+        if self.current_module and len(parts) == 2:
+            target_module = self.table.resolve_alias(self.current_module, base_name)
+            if target_module is not None:
+                return self._resolve_module_item(target_module, parts[1], is_call=True, args=node.args)
+
+        # Case B: std.* fully qualified path (2+ parts: std.print, std.mem.copy)
+        if base_name == "std":
+            if len(parts) < 2:
+                raise TypeCheckError("std module name cannot be used alone")
+            namespace = ".".join(parts[:-1])
+            item_name = parts[-1]
+            if namespace not in self.table.module_decls:
+                raise TypeCheckError(f"Unknown std module: {namespace}")
+            # Look up function declaration in that module
+            decl = self.table.find_item_in_module(namespace, item_name)
+            if decl is None:
+                raise TypeCheckError(f"Function '{item_name}' not found in std module '{namespace}'")
+            # It must be a FnDecl
+            if not isinstance(decl, FnDecl):
+                raise TypeCheckError(f"'{item_name}' in std module '{namespace}' is not a function")
+            # Get signature from table (already built)
+            sig = self.table.fn_signatures.get(item_name)
+            if sig is None:
+                raise TypeCheckError(f"Function '{item_name}' not found in signatures")
+            param_types, return_type = sig
+            if len(node.args) != len(param_types):
                 raise TypeCheckError(
-                    f"'{node.name}' bukan variant di union '{base_name}' "
-                    f"(yang ada: {sorted(known)})"
+                    f"Pemanggilan '{item_name}' dengan {len(node.args)} argumen, "
+                    f"tapi fungsi ini butuh {len(param_types)} parameter"
                 )
-            if len(node.args) > 1:
+            args = [
+                self._translate_expr(a, expected_type=pt)
+                for a, pt in zip(node.args, param_types)
+            ]
+            for i, (arg, pt) in enumerate(zip(args, param_types)):
+                self._check_assignable(
+                    pt, arg,
+                    context=f"argumen ke-{i + 1} pemanggilan '{item_name}'"
+                )
+            return HCallExpr(callee=item_name, args=args, type_ref=TypeRef(return_type))
+
+        # Case C: 2-part base.name(args) — reuse existing logic
+        if len(parts) == 2:
+            actual_base = parts[0]
+            name = parts[1]
+            # Union -- variant dengan payload
+            if actual_base in self.table.union_names:
+                known = self.table.union_variants.get(actual_base, set())
+                if name in known:
+                    if len(node.args) > 1:
+                        raise TypeCheckError(
+                            f"Union '{actual_base}.{name}' dipanggil dengan {len(node.args)} "
+                            f"argumen, stage0 hanya support 1 payload."
+                        )
+                    payload = self._translate_expr(node.args[0]) if len(node.args) == 1 else None
+                    return HUnionLiteral(
+                        union_name=actual_base, variant_name=name, payload=payload,
+                        type_ref=TypeRef(actual_base)
+                    )
+            # Enum -- error
+            if actual_base in self.table.enum_names:
                 raise TypeCheckError(
-                    f"Union '{base_name}.{node.name}' dipanggil dengan {len(node.args)} "
-                    f"argumen, stage0 hanya support 1 payload."
+                    f"'{actual_base}.{name}(...)' tidak valid -- '{actual_base}' "
+                    f"adalah enum, enum variant tidak punya payload."
                 )
-            payload = self._translate_expr(node.args[0]) if len(node.args) == 1 else None
-            return HUnionLiteral(
-                union_name=base_name, variant_name=node.name, payload=payload,
-                type_ref=TypeRef(base_name)
-            )
-
-        # 2. Enum -- error (enum tidak punya payload)
-        if base_name is not None and base_name in self.table.enum_names:
-            raise TypeCheckError(
-                f"'{base_name}.{node.name}(...)' tidak valid -- '{base_name}' "
-                f"adalah enum, enum variant tidak punya payload."
-            )
-
-        # 3. Instance/variable -- method call
-        base_expr = self._translate_expr(node.base)
-
-        # Infer struct_name
-        struct_name = self.current_struct_name
-        if base_name is not None:
-            if base_name == "self" and self.current_struct_name:
+            # Method call
+            base_expr = self._translate_expr(Ident(actual_base))
+            struct_name = self.current_struct_name
+            if actual_base == "self" and self.current_struct_name:
                 struct_name = self.current_struct_name
-            elif base_name in self.local_types:
-                struct_name = self.local_types[base_name]
-
-        if struct_name is None:
-            raise TypeCheckError(
-                f"MethodCall '{node.name}' tidak bisa infer struct_name -- "
-                f"tipe objek '{base_name}' tidak diketahui."
+            elif actual_base in self.local_types:
+                struct_name = self.local_types[actual_base]
+            if struct_name is None:
+                raise TypeCheckError(
+                    f"MethodCall '{name}' tidak bisa infer struct_name -- "
+                    f"tipe objek '{actual_base}' tidak diketahui."
+                )
+            args, return_type_ref = self._translate_method_args_and_return(
+                struct_name, name, node.args
+            )
+            return HMethodCall(
+                obj=base_expr, method=name, args=args,
+                struct_name=struct_name, type_ref=return_type_ref
             )
 
-        args, return_type_ref = self._translate_method_args_and_return(
-            struct_name, node.name, node.args
-        )
-
-        return HMethodCall(
-            obj=base_expr, method=node.name, args=args,
-            struct_name=struct_name, type_ref=return_type_ref
-        )
+        raise TypeCheckError(f"Cannot resolve dotted call: {'.'.join(parts)}")
 
     # --- Translation: Statements ---
 
@@ -729,3 +871,14 @@ def check_program(decls: list) -> list[HDecl]:
     table = SymbolTable.build(decls)
     builder = HIRBuilder(table)
     return [builder.translate_decl(d) for d in decls]
+
+
+def check_program_modules(module_decls: dict[str, list], module_uses: dict[str, list]) -> list[HDecl]:
+    """Entry point: multi-module AST -> HIR."""
+    table = SymbolTable.build_modules(module_decls, module_uses)
+    all_hir = []
+    for module_name, decls in module_decls.items():
+        builder = HIRBuilder(table, current_module=module_name)
+        for d in decls:
+            all_hir.append(builder.translate_decl(d))
+    return all_hir

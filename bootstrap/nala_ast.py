@@ -6,6 +6,11 @@ All nodes are dataclasses for debuggability.
 from dataclasses import dataclass, field
 
 @dataclass
+class UseDecl:
+    module_path: str
+    alias: str | None = None
+
+@dataclass
 class EnumDecl:
     """const Name = enum { A, B }; C-style enum without payload."""
     name: str
