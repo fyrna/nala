@@ -1,34 +1,9 @@
-"""
-bootstrap/ir/hir.py
-
-High-level Intermediate Representation (HIR) untuk bahasa Nala.
-
-HIR adalah hasil dari type checker -- AST yang sudah:
-    1. Semua referensi ter-resolve (tidak ada DottedAccess/DottedCall)
-    2. Setiap ekspresi punya type annotation (TypeRef)
-    3. Semua metadata semantik sudah lengkap
-    4. Immutable -- codegen HANYA membaca, tidak pernah mutasi
-
-FILOSOFI:
-    - HIR adalah "kontrak" antara frontend (type checker) dan backend (codegen).
-    - Codegen tidak boleh melakukan inferensi atau keputusan semantik apapun.
-    - Semua informasi yang codegen butuhkan HARUS sudah ada di HIR.
-
-BEDA DENGAN AST:
-    - AST (nala_ast.py) adalah pure syntax tree -- stupid, netral.
-    - HIR adalah semantic tree -- resolved, typed, final.
-    - Type checker adalah satu-satunya yang membuat HIR.
-"""
-
+# bootstrap/ir/hir.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
 
-
-# ---------------------------------------------------------------------------
-# TypeRef -- representasi tipe di HIR
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class TypeRef:
@@ -39,12 +14,6 @@ class TypeRef:
         - Primitive: "i32", "str", "bool", "void"
         - User-defined: "Token", "Option", "Result"
         - Array: "[]u8", "[]i32"
-
-    TypeRef bersifat frozen (immutable) sehingga bisa digunakan sebagai
-    key di dictionary dan tidak bisa dimutasi setelah dibuat.
-
-    Attributes:
-        name: Nama tipe dalam bentuk string
     """
     name: str
 
@@ -52,9 +21,7 @@ class TypeRef:
         return self.name
 
 
-# ---------------------------------------------------------------------------
-# HIR Expressions -- semua sudah resolved dan typed
-# ---------------------------------------------------------------------------
+# expression
 
 @dataclass
 class HIdent:
@@ -80,7 +47,7 @@ class HIntLiteral:
 @dataclass
 class HFloatLiteral:
     """
-    Literal float -- sudah typed.
+    Literal float
 
     Mengikuti pola HIntLiteral: type_ref default "f32", belum
     context-aware terhadap tipe target (mis. f64). Perbaikan supaya
@@ -98,8 +65,14 @@ class HByteLiteral:
 
 
 @dataclass
+class HBoolLiteral:
+    value: bool
+    type_ref: TypeRef = field(default_factory=lambda: TypeRef("bool"))
+
+
+@dataclass
 class HFieldAccess:
-    """Akses field: obj.field -- sudah divalidasi type checker."""
+    """Akses field: obj.field"""
     obj: HExpr
     field: str
     type_ref: TypeRef
@@ -107,14 +80,12 @@ class HFieldAccess:
 
 @dataclass
 class HArrayLiteral:
-    """Array literal: [1, 2, 3] — sudah typed."""
     elements: list[HExpr]
     type_ref: TypeRef
 
 
 @dataclass
 class HArrayIndex:
-    """Array indexing: arr[i] — sudah typed."""
     obj: HExpr
     index: HExpr
     type_ref: TypeRef
@@ -176,10 +147,7 @@ class HStructLiteral:
 
 @dataclass
 class HUnionLiteral:
-    """Konstruksi instance union: UnionName.VariantName(payload).
-
-    union_name SELALU terisi (wajib di HIR).
-    """
+    """Konstruksi instance union: UnionName.VariantName(payload)."""
     union_name: str
     variant_name: str
     payload: HExpr | None
@@ -203,19 +171,14 @@ class HIfExpr:
     type_ref: TypeRef
 
 
-# Union type untuk semua ekspresi HIR
 HExpr = (
-    HIdent | HStringLiteral | HIntLiteral | HFloatLiteral | HByteLiteral
+    HIdent | HStringLiteral | HIntLiteral | HFloatLiteral | HBoolLiteral | HByteLiteral
     | HFieldAccess | HBinaryExpr | HUnaryExpr | HCallExpr
     | HMethodCall | HIntrinsicCall | HStructLiteral | HUnionLiteral
     | HEnumVariantAccess | HIfExpr
     | HArrayLiteral | HArrayIndex
 )
 
-
-# ---------------------------------------------------------------------------
-# HIR Statements
-# ---------------------------------------------------------------------------
 
 @dataclass
 class HParam:
@@ -306,11 +269,7 @@ class HLetStmt:
 
 @dataclass
 class HMatchArm:
-    """Satu arm di match statement.
-
-    union_name SELALU terisi (wajib di HIR).
-    bind_type SELALU terisi kalau bind tidak None.
-    """
+    """Satu arm di match statement."""
     variant: str
     body: list[HStmt]
     union_name: str
@@ -321,25 +280,17 @@ class HMatchArm:
 
 @dataclass
 class HMatchStmt:
-    """Statement match.
-
-    union_name SELALU terisi (wajib di HIR).
-    """
+    """Statement match."""
     expr: HExpr
     arms: list[HMatchArm]
     union_name: str
 
 
-# Union type untuk semua statement HIR
 HStmt = (
     HReturnStmt | HIfStmt | HWhileStmt | HForInStmt | HAssignStmt | HLetStmt
     | HExprStmt | HMatchStmt | HContinueStmt | HBreakStmt
 )
 
-
-# ---------------------------------------------------------------------------
-# HIR Top-level Declarations
-# ---------------------------------------------------------------------------
 
 @dataclass
 class HEnumDecl:
@@ -380,10 +331,7 @@ class HUnionDecl:
 
 @dataclass
 class HFnDecl:
-    """Deklarasi fungsi di HIR.
-
-    struct_name SELALU terisi kalau ini method.
-    """
+    """Deklarasi fungsi di HIR."""
     name: str
     params: list[HParam]
     return_type: TypeRef
@@ -393,5 +341,4 @@ class HFnDecl:
     struct_name: str | None = None
 
 
-# Union type untuk semua deklarasi top-level HIR
 HDecl = HEnumDecl | HStructDecl | HUnionDecl | HFnDecl

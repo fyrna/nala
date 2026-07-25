@@ -1,41 +1,22 @@
 """
-bootstrap/ir/type_checker.py
+bootstrap/ir/hir_builder.py
 
-Type Checker / Semantic Analyzer -- AST -> HIR Translator.
+HIRBuilder -- AST -> HIR Translator.
 
 Tanggung jawab TUNGGAL modul ini:
     1. Terima AST "raw" (pure syntax) dari parser
     2. Buat HIR "final" (resolved + typed) yang baru
     3. TIDAK mutasi AST -- AST tetap immutable setelah parse
-
-FILOSOFI:
-    - Parser shall know nothing except language syntax.
-    - Type checker adalah satu-satunya yang membuat keputusan semantik.
-    - Codegen HANYA membaca HIR, tidak pernah melihat AST.
-
-ALUR KERJA:
-    1. Bangun SymbolTable dari AST top-level declarations
-    2. Traversal AST, translate node per node ke HIR
-    3. Resolve semua DottedAccess/DottedCall
-    4. Infer dan attach TypeRef ke setiap ekspresi
-    5. Attach metadata semantik (union_name, bind_type, struct_name)
-    6. Return list[HDecl] -- HIR yang siap dikonsumsi codegen
-
-ERROR HANDLING:
-    - TypeCheckError untuk semua error semantik
-    - Fail-fast: error pertama akan menghentikan kompilasi
 """
 
 from __future__ import annotations
-
-import dataclasses
 
 from nala_ast import (
     # Declarations
     EnumDecl, StructDecl, UnionDecl, UnionVariant, StructField,
     FnDecl, Param, SelfParam,
     # Expressions
-    Expr, Ident, StringLiteral, IntLiteral, FloatLiteral, ByteLiteral,
+    Expr, Ident, StringLiteral, IntLiteral, FloatLiteral, BoolLiteral, ByteLiteral,
     BinaryExpr, UnaryExpr, CallExpr, FieldAccess, MethodCall,
     IntrinsicCall, StructLiteral, UnionLiteral, EnumVariantAccess,
     IfExpr, DottedAccess, DottedCall,
@@ -49,7 +30,7 @@ from ir.hir import (
     # Type
     TypeRef,
     # Expressions
-    HIdent, HStringLiteral, HIntLiteral, HFloatLiteral, HByteLiteral,
+    HIdent, HStringLiteral, HIntLiteral, HFloatLiteral, HBoolLiteral, HByteLiteral,
     HFieldAccess, HBinaryExpr, HUnaryExpr, HCallExpr,
     HMethodCall, HIntrinsicCall, HStructLiteral, HUnionLiteral,
     HEnumVariantAccess, HIfExpr,
@@ -66,65 +47,16 @@ from ir.hir import (
     HDecl,
 )
 
-
-class TypeCheckError(Exception):
-    """Error semantik -- beda dari ParseError (syntax error)."""
-    pass
-
-
-# ---------------------------------------------------------------------------
-# SymbolTable -- lookup deklarasi top-level
-# ---------------------------------------------------------------------------
-
-class SymbolTable:
-    """
-    Tabel simbol untuk lookup deklarasi top-level.
-
-    Menyimpan:
-        - union_names, enum_names, struct_names: set[str]
-        - union_variants: dict[union_name, set[variant_names]]
-        - union_payload_types: dict[union_name, dict[variant_name, str|None]]
-        - enum_variants: dict[enum_name, set[variant_names]]
-        - struct_fields: dict[struct_name, dict[field_name, (type_name, is_mut)]]
-    """
-
-    def __init__(self) -> None:
-        self.union_names: set[str] = set()
-        self.enum_names: set[str] = set()
-        self.struct_names: set[str] = set()
-
-        self.union_variants: dict[str, set[str]] = {}
-        self.union_payload_types: dict[str, dict[str, str | None]] = {}
-        self.enum_variants: dict[str, set[str]] = {}
-        self.struct_fields: dict[str, dict[str, tuple[str, bool]]] = {}
-
-    @classmethod
-    def build(cls, decls: list) -> "SymbolTable":
-        table = cls()
-        for decl in decls:
-            if isinstance(decl, UnionDecl):
-                table.union_names.add(decl.name)
-                table.union_variants[decl.name] = {v.name for v in decl.variants}
-                table.union_payload_types[decl.name] = {}
-                for v in decl.variants:
-                    if len(v.payload_types) > 0:
-                        table.union_payload_types[decl.name][v.name] = v.payload_types[0]
-                    else:
-                        table.union_payload_types[decl.name][v.name] = None
-            elif isinstance(decl, EnumDecl):
-                table.enum_names.add(decl.name)
-                table.enum_variants[decl.name] = set(decl.variants)
-            elif isinstance(decl, StructDecl):
-                table.struct_names.add(decl.name)
-                table.struct_fields[decl.name] = {}
-                for f in decl.fields:
-                    table.struct_fields[decl.name][f.name] = (f.type_name, f.is_mut)
-        return table
+from ir.typecheck.symbol_table import SymbolTable, TypeCheckError
+from ir.typecheck.inference import (
+    infer_expr_type, infer_field_type, intrinsic_return_type,
+)
+from ir.typecheck.type_compat import (
+    parse_type_kind, types_compatible, is_integer_type_name, is_float_type_name,
+)
 
 
-# ---------------------------------------------------------------------------
 # Type Checker / HIR Builder
-# ---------------------------------------------------------------------------
 
 class HIRBuilder:
     """
@@ -147,57 +79,106 @@ class HIRBuilder:
         """Buat TypeRef dari nama tipe (fallback ke 'void' kalau None)."""
         return TypeRef(type_name if type_name is not None else "void")
 
-    def _parse_array_type(self, type_name: str) -> tuple[int, str] | None:
-        """Parse [N]T -> (N, T) atau None kalau bukan array type."""
-        if not type_name.startswith("[") or "]" not in type_name:
-            return None
-        # Format: [N]T
-        bracket_end = type_name.index("]")
-        size_str = type_name[1:bracket_end]
-        inner_type = type_name[bracket_end + 1:]
-        try:
-            size = int(size_str)
-            return (size, inner_type)
-        except ValueError:
-            return None
-
     def _array_element_type(self, type_name: str) -> str | None:
-        """Dapatkan tipe elemen dari [N]T, atau None."""
-        parsed = self._parse_array_type(type_name)
-        return parsed[1] if parsed else None
+        """Dapatkan tipe elemen dari [N]T, atau None -- via parse_type_kind."""
+        from ir.typecheck.type_compat import ArrayKind, PrimitiveKind, NamedKind
+        kind = parse_type_kind(type_name)
+        if isinstance(kind, ArrayKind):
+            elem = kind.element
+            if isinstance(elem, PrimitiveKind):
+                return elem.name
+            if isinstance(elem, NamedKind):
+                return elem.name
+        return None
 
     def _infer_expr_type(self, expr: Expr) -> TypeRef:
-        """Infer tipe dari ekspresi AST (sederhana, untuk local tracking)."""
-        if isinstance(expr, StringLiteral):
-            return TypeRef("str")
-        elif isinstance(expr, IntLiteral):
-            return TypeRef("i32")
-        elif isinstance(expr, FloatLiteral):
-            return TypeRef("f32")
-        elif isinstance(expr, ByteLiteral):
-            return TypeRef("u8")
-        elif isinstance(expr, Ident):
-            if expr.name in self.local_types:
-                return TypeRef(self.local_types[expr.name])
-            if expr.name == "self" and self.current_struct_name:
-                return TypeRef(self.current_struct_name)
-        elif isinstance(expr, StructLiteral):
-            return TypeRef(expr.type_name)
-        elif isinstance(expr, UnionLiteral):
-            return TypeRef(expr.union_name)
-        elif isinstance(expr, EnumVariantAccess):
-            return TypeRef(expr.enum_name)
-        elif isinstance(expr, ArrayLiteral):
-            # Size dan element type sudah eksplisit di literal-nya sendiri
-            # ([N]T{...}) -- tidak perlu (dan tidak boleh) ditebak dari
-            # elemen pertama.
-            return TypeRef(f"[{expr.size}]{expr.element_type}")
-        return TypeRef("void")  # fallback
+        return infer_expr_type(
+            expr, self.table, self.local_types, self.current_struct_name
+        )
+
+    def _check_assignable(self, expected_type_name: str, actual: HExpr, context: str) -> None:
+        """
+        Verifikasi actual.type_ref cocok dengan expected_type_name.
+
+        Raise TypeCheckError kalau tidak cocok. `context` adalah deskripsi
+        singkat untuk pesan error (mis. "let x", "argumen ke-1 fungsi foo").
+
+        Kalau salah satu sisi gagal di-parse jadi TypeKind (UnknownKind),
+        pengecekan di-skip -- ini kemungkinan besar limitasi parser
+        type_name stage0 (mis. tipe generic yang belum didukung), bukan
+        kesalahan program yang sebenarnya. Lebih aman skip daripada false
+        positive yang menghalangi kode yang sebenarnya benar.
+        """
+        expected_kind = parse_type_kind(expected_type_name)
+        actual_kind = parse_type_kind(actual.type_ref.name)
+
+        from ir.typecheck.type_compat import UnknownKind
+        if isinstance(expected_kind, UnknownKind) or isinstance(actual_kind, UnknownKind):
+            return
+
+        if not types_compatible(expected_kind, actual_kind):
+            raise TypeCheckError(
+                f"Type mismatch di {context}: diharapkan '{expected_type_name}', "
+                f"tapi ketemu '{actual.type_ref.name}'"
+            )
+
+    def _translate_method_args_and_return(
+        self, struct_name: str, method_name: str, raw_args: list[Expr]
+    ) -> tuple[list[HExpr], TypeRef]:
+        """
+        Translate argumen method call + tentukan return type dari
+        method_signatures. Dipakai oleh dua titik resolusi method call
+        (_translate_expr utk MethodCall dan _resolve_dotted_call) supaya
+        keduanya konsisten -- sebelumnya masing-masing hardcode
+        TypeRef("void") secara terpisah, itu akar bug yang diperbaiki di sini.
+
+        Kalau signature method tidak ditemukan (mis. dipanggil pada objek
+        yang struct_name-nya tidak dikenal SymbolTable), fallback: translate
+        args tanpa expected_type, return type "void" -- sama seperti
+        fallback yang sudah ada untuk top-level CallExpr yang tidak dikenal.
+        """
+        sig = self.table.method_signatures.get((struct_name, method_name))
+        if sig is not None:
+            param_types, return_type = sig
+            if len(raw_args) != len(param_types):
+                raise TypeCheckError(
+                    f"Pemanggilan method '{struct_name}.{method_name}' dengan "
+                    f"{len(raw_args)} argumen, tapi method ini butuh "
+                    f"{len(param_types)} parameter"
+                )
+            args = [
+                self._translate_expr(a, expected_type=pt)
+                for a, pt in zip(raw_args, param_types)
+            ]
+            for i, (arg, param_type) in enumerate(zip(args, param_types)):
+                self._check_assignable(
+                    param_type, arg,
+                    context=(
+                        f"argumen ke-{i + 1} pemanggilan method "
+                        f"'{struct_name}.{method_name}'"
+                    )
+                )
+            return args, TypeRef(return_type)
+        else:
+            args = [self._translate_expr(a) for a in raw_args]
+            return args, TypeRef("void")
 
     # --- Translation: Expressions ---
 
-    def _translate_expr(self, expr: Expr) -> HExpr:
-        """Translate AST Expr -> HIR HExpr."""
+    def _translate_expr(self, expr: Expr, expected_type: str | None = None) -> HExpr:
+        """
+        Translate AST Expr -> HIR HExpr.
+
+        Args:
+            expr: ekspresi AST yang mau ditranslate
+            expected_type: tipe yang diharapkan dari context pemanggil
+                (mis. anotasi `let`, tipe parameter fungsi). HANYA dipakai
+                untuk resolve literal numerik (IntLiteral/FloatLiteral) --
+                lihat catatan di inference.infer_expr_type(). Sengaja TIDAK
+                diturunkan ke sub-ekspresi manapun kecuali dijelaskan
+                eksplisit (mis. tidak diturunkan ke operand BinaryExpr),
+                supaya scope pengaruhnya tetap jelas dan mudah ditelusuri.
+        """
         if isinstance(expr, Ident):
             type_name = self.local_types.get(expr.name)
             if type_name is None and expr.name == "self" and self.current_struct_name:
@@ -208,13 +189,25 @@ class HIRBuilder:
             return HStringLiteral(value=expr.value)
 
         elif isinstance(expr, IntLiteral):
+            # Kalau context minta tipe integer spesifik, literal ini
+            # benar-benar "jadi" tipe itu di HIR -- bukan selalu i32.
+            # Lihat inference.infer_expr_type() untuk penjelasan lebih
+            # lengkap kenapa ini perlu (tanpa ini, `let x: i64 = 10`
+            # false-positive gagal type check meski programnya benar).
+            if expected_type is not None and is_integer_type_name(expected_type):
+                return HIntLiteral(value=expr.value, type_ref=TypeRef(expected_type))
             return HIntLiteral(value=expr.value)
 
         elif isinstance(expr, FloatLiteral):
+            if expected_type is not None and is_float_type_name(expected_type):
+                return HFloatLiteral(value=expr.value, type_ref=TypeRef(expected_type))
             return HFloatLiteral(value=expr.value)
 
         elif isinstance(expr, ByteLiteral):
             return HByteLiteral(value=expr.value)
+
+        elif isinstance(expr, BoolLiteral):
+            return HBoolLiteral(value=expr.value)
 
         elif isinstance(expr, BinaryExpr):
             left = self._translate_expr(expr.left)
@@ -237,10 +230,36 @@ class HIRBuilder:
             return HUnaryExpr(op=expr.op, operand=operand, type_ref=result_type)
 
         elif isinstance(expr, CallExpr):
-            args = [self._translate_expr(a) for a in expr.args]
-            # Untuk fungsi user-defined, kita belum punya signature table
-            # Jadi return type di-infer dari context (sederhana: void untuk sekarang)
-            return HCallExpr(callee=expr.callee, args=args, type_ref=TypeRef("void"))
+            # Lookup signature DULU (sebelum translate args) -- supaya tiap
+            # argumen bisa di-translate dengan expected_type dari parameter
+            # yang bersangkutan (penting untuk literal numerik context-aware,
+            # mis. f(10) ke parameter i64 harus bikin `10` benar-benar
+            # ber-type_ref i64, bukan i32 default).
+            sig = self.table.fn_signatures.get(expr.callee)
+            if sig is not None:
+                param_types, return_type = sig
+                if len(expr.args) != len(param_types):
+                    raise TypeCheckError(
+                        f"Pemanggilan '{expr.callee}' dengan {len(expr.args)} argumen, "
+                        f"tapi fungsi ini butuh {len(param_types)} parameter"
+                    )
+                args = [
+                    self._translate_expr(a, expected_type=pt)
+                    for a, pt in zip(expr.args, param_types)
+                ]
+                for i, (arg, param_type) in enumerate(zip(args, param_types)):
+                    self._check_assignable(
+                        param_type, arg,
+                        context=f"argumen ke-{i + 1} pemanggilan '{expr.callee}'"
+                    )
+                return_type_ref = TypeRef(return_type)
+            else:
+                # Fungsi tidak dikenal (mis. belum ter-collect dari file
+                # lain) -- translate args tanpa expected_type, fallback
+                # return type ke void.
+                args = [self._translate_expr(a) for a in expr.args]
+                return_type_ref = TypeRef("void")
+            return HCallExpr(callee=expr.callee, args=args, type_ref=return_type_ref)
 
         elif isinstance(expr, FieldAccess):
             obj = self._translate_expr(expr.obj)
@@ -250,7 +269,6 @@ class HIRBuilder:
 
         elif isinstance(expr, MethodCall):
             obj = self._translate_expr(expr.obj)
-            args = [self._translate_expr(a) for a in expr.args]
             # AST MethodCall no longer has struct_name -- always infer from context
             struct_name = self.current_struct_name
             if isinstance(expr.obj, Ident):
@@ -263,15 +281,18 @@ class HIRBuilder:
                     f"MethodCall untuk '{expr.method}' tidak bisa infer struct_name -- "
                     f"tipe objek tidak diketahui."
                 )
+            args, return_type_ref = self._translate_method_args_and_return(
+                struct_name, expr.method, expr.args
+            )
             return HMethodCall(
                 obj=obj, method=expr.method, args=args,
-                struct_name=struct_name, type_ref=TypeRef("void")
+                struct_name=struct_name, type_ref=return_type_ref
             )
 
         elif isinstance(expr, IntrinsicCall):
             args = [self._translate_expr(a) for a in expr.args]
             # Infer return type dari nama intrinsic
-            ret_type = self._intrinsic_return_type(expr.name)
+            ret_type = intrinsic_return_type(expr.name)
             return HIntrinsicCall(name=expr.name, args=args, type_ref=ret_type)
 
         elif isinstance(expr, StructLiteral):
@@ -349,40 +370,9 @@ class HIRBuilder:
             raise TypeCheckError(f"Ekspresi AST tidak dikenal: {type(expr).__name__}")
 
     def _infer_field_type(self, obj: HExpr, field: str) -> TypeRef:
-        """Infer tipe field dari struct definition."""
-        # Coba dapatkan nama struct dari obj
-        struct_name = None
-        if isinstance(obj, HIdent):
-            if obj.name == "self" and self.current_struct_name:
-                struct_name = self.current_struct_name
-            elif obj.name in self.local_types:
-                struct_name = self.local_types[obj.name]
-        elif isinstance(obj, HFieldAccess):
-            # Chain: a.b.c -- belum support di stage0
-            pass
-
-        if struct_name and struct_name in self.table.struct_fields:
-            field_info = self.table.struct_fields[struct_name].get(field)
-            if field_info:
-                return TypeRef(field_info[0])
-        return TypeRef("void")
-
-    def _intrinsic_return_type(self, name: str) -> TypeRef:
-        """Infer return type dari intrinsic name."""
-        if name in ("print_u8", "print_u16", "print_u32", "print_u64",
-                    "print_i8", "print_i16", "print_i32", "print_i64",
-                    "print_f32", "print_f64", "print_bool", "print_string",
-                    "assert"):
-            return TypeRef("void")
-        elif name == "byte_len":
-            return TypeRef("usize")
-        elif name in ("as_bytes", "slice_bytes"):
-            return TypeRef("[]u8")
-        elif name == "byte_at":
-            return TypeRef("u8")
-        elif name == "len":
-            return TypeRef("usize")
-        return TypeRef("void")
+        return infer_field_type(
+            obj, field, self.table, self.local_types, self.current_struct_name
+        )
 
     # --- Resolution: DottedAccess -> HFieldAccess / HUnionLiteral / HEnumVariantAccess
 
@@ -455,7 +445,6 @@ class HIRBuilder:
 
         # 3. Instance/variable -- method call
         base_expr = self._translate_expr(node.base)
-        args = [self._translate_expr(a) for a in node.args]
 
         # Infer struct_name
         struct_name = self.current_struct_name
@@ -471,9 +460,13 @@ class HIRBuilder:
                 f"tipe objek '{base_name}' tidak diketahui."
             )
 
+        args, return_type_ref = self._translate_method_args_and_return(
+            struct_name, node.name, node.args
+        )
+
         return HMethodCall(
             obj=base_expr, method=node.name, args=args,
-            struct_name=struct_name, type_ref=TypeRef("void")
+            struct_name=struct_name, type_ref=return_type_ref
         )
 
     # --- Translation: Statements ---
@@ -516,7 +509,16 @@ class HIRBuilder:
                 type_name = self._infer_expr_type(stmt.value).name
 
             type_ref = self._type_ref(type_name)
-            value = self._translate_expr(stmt.value)
+            value = self._translate_expr(stmt.value, expected_type=stmt.type_name)
+
+            # Verifikasi kecocokan tipe HANYA kalau ada anotasi eksplisit --
+            # kalau type_name di-infer dari value itu sendiri (baris di atas),
+            # keduanya otomatis "cocok" secara tautologis, jadi tidak perlu
+            # (dan tidak boleh) dicek ulang.
+            if stmt.type_name is not None:
+                self._check_assignable(
+                    stmt.type_name, value, context=f"let '{stmt.name}'"
+                )
 
             # Track local type
             self.local_types[stmt.name] = type_name
@@ -689,20 +691,8 @@ class HIRBuilder:
         return result
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def check_program(decls: list) -> list[HDecl]:
-    """
-    Entry point: AST -> HIR.
-
-    Args:
-        decls: List of AST nodes dari parser (raw)
-
-    Returns:
-        list[HDecl]: HIR yang sudah resolved, typed, dan lengkap metadata
-    """
+    """Entry point: AST -> HIR."""
     table = SymbolTable.build(decls)
     builder = HIRBuilder(table)
     return [builder.translate_decl(d) for d in decls]
