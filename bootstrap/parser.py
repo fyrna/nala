@@ -268,11 +268,23 @@ class Parser:
             return BinaryExpr(op, left, self._parse_additive())
         return left
 
+    _ADDITIVE_OPS = {TokenKind.PLUS: "+", TokenKind.MINUS: "-"}
+    _MULTIPLICATIVE_OPS = {TokenKind.STAR: "*", TokenKind.SLASH: "/", TokenKind.PERCENT: "%"}
+
     def _parse_additive(self) -> Expr:
-        left = self._parse_unary()
-        while self._current.kind == TokenKind.PLUS:
+        left = self._parse_multiplicative()
+        while self._current.kind in self._ADDITIVE_OPS:
+            op = self._ADDITIVE_OPS[self._current.kind]
             self._advance()
-            left = BinaryExpr("+", left, self._parse_unary())
+            left = BinaryExpr(op, left, self._parse_multiplicative())
+        return left
+
+    def _parse_multiplicative(self) -> Expr:
+        left = self._parse_unary()
+        while self._current.kind in self._MULTIPLICATIVE_OPS:
+            op = self._MULTIPLICATIVE_OPS[self._current.kind]
+            self._advance()
+            left = BinaryExpr(op, left, self._parse_unary())
         return left
 
     def _parse_unary(self) -> Expr:

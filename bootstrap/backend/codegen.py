@@ -1,7 +1,6 @@
 # bootstrap/backend/codegen.py
 """
 HIR → C translator. No semantic decisions, only translation.
-Flow: gen_program() → gen_enum/struct/union/fn → gen_expr/gen_stmt → C code.
 """
 from __future__ import annotations
 from ir.hir import *
@@ -54,9 +53,14 @@ _BINOP_MAP = {
     ">=": ">=",
     "<=": "<=",
     "==": "==",
+    "!=": "!=",
     "and": "&&",
     "or": "||",
     "+": "+",
+    "-": "-",
+    "*": "*",
+    "/": "/",
+    "%": "%",
     ">": ">",
     "<": "<",
 }

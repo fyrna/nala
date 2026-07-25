@@ -20,6 +20,7 @@ class TokenKind(Enum):
     MINUS = auto()
     STAR = auto()
     SLASH = auto()
+    PERCENT = auto()
     EQ = auto()
     EQ_EQ = auto()
     PLUS_EQ = auto()
@@ -187,6 +188,7 @@ class Lexer:
         c = self._current()
         simple = {
             "+": TokenKind.PLUS, "*": TokenKind.STAR, "/": TokenKind.SLASH,
+            "%": TokenKind.PERCENT,
             "(": TokenKind.LPAREN, ")": TokenKind.RPAREN,
             "{": TokenKind.LBRACE, "}": TokenKind.RBRACE,
             "[": TokenKind.LBRACKET, "]": TokenKind.RBRACKET,

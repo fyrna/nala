@@ -210,15 +210,48 @@ class HIRBuilder:
             return HBoolLiteral(value=expr.value)
 
         elif isinstance(expr, BinaryExpr):
-            left = self._translate_expr(expr.left)
-            right = self._translate_expr(expr.right)
-            # Infer tipe hasil binary expr (sederhana: aritmetika -> i32, comparison -> bool)
-            if expr.op in ("+", "-", "*", "/"):
-                result_type = TypeRef("i32")
-            elif expr.op in ("==", "!=", ">", "<", ">=", "<=", "and", "or"):
+            _ARITHMETIC_OPS = ("+", "-", "*", "/", "%")
+            _COMPARISON_OPS = ("==", "!=", ">", "<", ">=", "<=")
+            _LOGICAL_OPS = ("and", "or")
+
+            if expr.op in _ARITHMETIC_OPS:
+                # Context-aware DUA ARAH -- literal boleh ada di kiri
+                # (`0 + b`) maupun kanan (`a + 5`), dan literal itu harus
+                # ikut tipe operand lawannya, bukan cuma satu arah.
+                #
+                # Strategi: translate kedua sisi dulu TANPA context, lalu
+                # deteksi mana yang literal AST-nya (IntLiteral/FloatLiteral)
+                # dan mana yang bukan. Kalau salah satu literal & satunya
+                # bukan, re-translate sisi literal itu dengan expected_type
+                # dari sisi non-literal. Kalau keduanya literal atau
+                # keduanya bukan literal, tidak ada context untuk
+                # "dipinjam" -- biarkan default masing-masing, lalu
+                # _check_assignable yang akan menegur kalau memang beda.
+                left_is_literal = isinstance(expr.left, (IntLiteral, FloatLiteral))
+                right_is_literal = isinstance(expr.right, (IntLiteral, FloatLiteral))
+
+                left = self._translate_expr(expr.left)
+                right = self._translate_expr(expr.right)
+
+                if left_is_literal and not right_is_literal:
+                    left = self._translate_expr(expr.left, expected_type=right.type_ref.name)
+                elif right_is_literal and not left_is_literal:
+                    right = self._translate_expr(expr.right, expected_type=left.type_ref.name)
+
+                self._check_assignable(
+                    left.type_ref.name, right,
+                    context=f"operand kanan '{expr.op}'"
+                )
+                result_type = left.type_ref
+            elif expr.op in _COMPARISON_OPS or expr.op in _LOGICAL_OPS:
+                left = self._translate_expr(expr.left)
+                right = self._translate_expr(expr.right)
                 result_type = TypeRef("bool")
             else:
+                left = self._translate_expr(expr.left)
+                right = self._translate_expr(expr.right)
                 result_type = TypeRef("void")
+
             return HBinaryExpr(op=expr.op, left=left, right=right, type_ref=result_type)
 
         elif isinstance(expr, UnaryExpr):
