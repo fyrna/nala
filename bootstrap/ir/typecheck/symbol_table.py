@@ -149,6 +149,32 @@ class SymbolTable:
                     return ("enum", decl.name, variant_name)
         return None
 
-    def is_valid_std_namespace(self, namespace: str) -> bool:
-        """Validate std.* namespace path. Stage0: std prefix always valid."""
-        return namespace.startswith("std.") or namespace == "std"
+    def resolve_qualified_name(self, current_module: str, qualified_name: str) -> tuple[str, str] | None:
+        """
+        Resolve module-qualified name like "models.Number" or "std.print".
+        Returns (module_name, item_name) or None if cannot resolve.
+        """
+        parts = qualified_name.split('.')
+        if len(parts) < 2:
+            return None
+        
+        alias = parts[0]
+        item_name = '.'.join(parts[1:])
+        
+        # Try resolve as module alias
+        target_module = self.resolve_alias(current_module, alias)
+        if target_module is not None:
+            return (target_module, item_name)
+        
+        # Try std.* fully qualified
+        if alias == "std":
+            # Check if module exists
+            for i in range(1, len(parts)):
+                namespace = ".".join(parts[:i])
+                if namespace in self.module_decls:
+                    remaining = ".".join(parts[i:])
+                    return (namespace, remaining)
+        
+        return None
+
+

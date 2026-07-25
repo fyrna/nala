@@ -49,4 +49,27 @@ void __intrinsic_print_string(NalaSlice x) { printf("%s\n", (char*)x.data); }
 void __intrinsic_assert(bool cond) {
     if (!cond) { fprintf(stderr, "Assertion failed\n"); abort(); }
 }
+
+/* assert_eq! -- C11 _Generic dispatch, pilih format printf sesuai tipe
+ * argumen saat compile time (bukan overload manual per-tipe seperti
+ * print_i32!/print_u32! -- ini murni fitur bahasa C, bukan hack). */
+#define __NALA_FMT(x) _Generic((x), \
+    uint8_t: "%u", uint16_t: "%u", uint32_t: "%u", uint64_t: "%llu", \
+    int8_t: "%d", int16_t: "%d", int32_t: "%d", int64_t: "%lld", \
+    float: "%f", double: "%f", \
+    bool: "%d", \
+    default: "%p")
+
+#define __intrinsic_assert_eq(a, b) do { \
+    __typeof__(a) __nala_a = (a); \
+    __typeof__(b) __nala_b = (b); \
+    if (!(__nala_a == __nala_b)) { \
+        fprintf(stderr, "Assertion failed: left != right\n  left:  "); \
+        fprintf(stderr, __NALA_FMT(__nala_a), __nala_a); \
+        fprintf(stderr, "\n  right: "); \
+        fprintf(stderr, __NALA_FMT(__nala_b), __nala_b); \
+        fprintf(stderr, "\n"); \
+        abort(); \
+    } \
+} while (0)
 """

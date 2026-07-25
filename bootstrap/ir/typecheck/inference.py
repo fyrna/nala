@@ -119,7 +119,7 @@ def intrinsic_return_type(name: str) -> TypeRef:
     if name in ("print_u8", "print_u16", "print_u32", "print_u64",
                 "print_i8", "print_i16", "print_i32", "print_i64",
                 "print_f32", "print_f64", "print_bool", "print_string",
-                "assert"):
+                "assert", "assert_eq"):
         return TypeRef("void")
     elif name == "byte_len":
         return TypeRef("usize")

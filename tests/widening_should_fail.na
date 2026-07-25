@@ -1,0 +1,13 @@
+// widening implicit, i16 variable dipassing ke parameter i64
+// STRICT: bahkan widening yang "aman secara nilai" tetap ditolak
+// expect: error type check "diharapkan 'i64', tapi ketemu 'i16'"
+// mungkin untuk kenaikan nanti boleh aman? entahlah :)
+fn identity(v: i64) -> i64 {
+    ret v;
+}
+
+fn main() -> void {
+    let x: i16 = 5;
+    let y: i64 = identity(x); // widening
+    print_i64!(y);
+}

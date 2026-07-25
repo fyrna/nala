@@ -1,5 +1,12 @@
-const Option = union { Some(u8), None, }
-const Result = union { Ok(u32), Err([]u8), }
+const Option = union {
+    Some(u8),
+    None,
+}
+
+const Result = union {
+    Ok(u32),
+    Err([]u8),
+}
 
 fn main() -> void {
     // union construction with payload
@@ -19,8 +26,8 @@ fn main() -> void {
     }
 
     // guard
-    let res: Result = Result.Ok(15);
-    match res {
+    let res1: Result = Result.Ok(15);
+    match res1 {
         Result.Ok(x) if x < 15 => {
             print_string!("smoll");
         }
@@ -29,6 +36,17 @@ fn main() -> void {
         }
         Result.Ok(x) if x > 15 => {
             print_string!("MORE than 15 inch.");
+        }
+        Result.Err(err) => {
+            print_string!(err);
+        }
+    }
+
+    // err
+    let res2: Result = Result.Err("im cute error");
+    match res2 {
+        Result.Ok(x) => {
+            print_string!("im okay");
         }
         Result.Err(err) => {
             print_string!(err);

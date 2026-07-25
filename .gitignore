@@ -1,2 +1,5 @@
 _test_out/
+x.c
+a.out
+x.out
 **/__pycache__/

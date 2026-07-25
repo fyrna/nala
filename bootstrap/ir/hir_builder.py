@@ -124,6 +124,26 @@ class HIRBuilder:
                 f"tapi ketemu '{actual.type_ref.name}'"
             )
 
+    def _resolve_dotted_type(self, type_name: str) -> TypeRef:
+        """Resolve module-qualified type name to unqualified TypeRef."""
+        if '.' not in type_name:
+            return TypeRef(type_name)
+        
+        resolved = self.table.resolve_qualified_name(self.current_module, type_name)
+        if resolved is None:
+            # Maybe it's a fully qualified std type?
+            if type_name.startswith("std."):
+                # Strip std. prefix, use the last part
+                return TypeRef(type_name.split('.')[-1])
+            raise TypeCheckError(f"Unable to resolve qualified type: {type_name}")
+        
+        module_name, item_name = resolved
+        decl = self.table.find_item_in_module(module_name, item_name)
+        if decl is None:
+            raise TypeCheckError(f"Item '{item_name}' not found in module '{module_name}'")
+        # Return unqualified name for codegen
+        return TypeRef(item_name)
+
     def _translate_method_args_and_return(
         self, struct_name: str, method_name: str, raw_args: list[Expr]
     ) -> tuple[list[HExpr], TypeRef]:
@@ -325,16 +345,52 @@ class HIRBuilder:
             )
 
         elif isinstance(expr, IntrinsicCall):
-            args = [self._translate_expr(a) for a in expr.args]
+            # assert_eq! (dan sejenisnya yang membandingkan 2 nilai)
+            # butuh context-aware dua arah antar argumennya sendiri --
+            # kalau salah satu literal (mis. `assert_eq!(float_var, 3.14)`),
+            # literal itu harus ikut tipe argumen lawannya. Tanpa ini,
+            # 3.14 selalu di-generate sbg C double, sementara float_var
+            # adalah C float -- dua representasi biner beda meski nilai
+            # "keliatan" sama, bikin assert_eq! false-negative.
+            #
+            # Ini SENGAJA khusus utk assert_eq/assert_ne (2 argumen yang
+            # memang harus dibandingkan setara) -- TIDAK digeneralisasi ke
+            # semua IntrinsicCall, karena intrinsic lain (mis. slice_bytes)
+            # argumennya punya makna berbeda-beda, bukan pasangan yg harus
+            # setipe.
+            _PAIRWISE_COMPARE_INTRINSICS = ("assert_eq", "assert_ne")
+
+            if expr.name in _PAIRWISE_COMPARE_INTRINSICS and len(expr.args) == 2:
+                left_ast, right_ast = expr.args[0], expr.args[1]
+                left_is_literal = isinstance(left_ast, (IntLiteral, FloatLiteral))
+                right_is_literal = isinstance(right_ast, (IntLiteral, FloatLiteral))
+
+                left = self._translate_expr(left_ast)
+                right = self._translate_expr(right_ast)
+
+                if left_is_literal and not right_is_literal:
+                    left = self._translate_expr(left_ast, expected_type=right.type_ref.name)
+                elif right_is_literal and not left_is_literal:
+                    right = self._translate_expr(right_ast, expected_type=left.type_ref.name)
+
+                args = [left, right]
+            else:
+                args = [self._translate_expr(a) for a in expr.args]
+
             # Infer return type dari nama intrinsic
             ret_type = intrinsic_return_type(expr.name)
             return HIntrinsicCall(name=expr.name, args=args, type_ref=ret_type)
 
         elif isinstance(expr, StructLiteral):
+            # Resolve qualified type name if any
+            type_name = expr.type_name
+            if '.' in type_name:
+                resolved_type = self._resolve_dotted_type(type_name)
+                type_name = resolved_type.name
             fields = [(name, self._translate_expr(val)) for name, val in expr.fields]
             return HStructLiteral(
-                type_name=expr.type_name, fields=fields,
-                type_ref=TypeRef(expr.type_name)
+                type_name=type_name, fields=fields,
+                type_ref=TypeRef(type_name)
             )
 
         elif isinstance(expr, UnionLiteral):
@@ -510,20 +566,16 @@ class HIRBuilder:
         if base_name == "std":
             if len(parts) < 2:
                 raise TypeCheckError("std module name cannot be used alone")
-            namespace = ".".join(parts[:-1])
-            item_name = parts[-1]
-            # Check if namespace exists in module_decls
-            if namespace not in self.table.module_decls:
-                raise TypeCheckError(f"Unknown std module: {namespace}")
-            # Look up item in that module
-            decl = self.table.find_item_in_module(namespace, item_name)
-            if decl is None:
-                raise TypeCheckError(f"Item '{item_name}' not found in std module '{namespace}'")
-            # For stage0, only support function calls via DottedCall, not bare access.
-            # But we might allow type names (Struct/Union/Enum) as expressions? Not yet.
+            # Use resolve_qualified_name
+            qualified = ".".join(parts)
+            resolved = self.table.resolve_qualified_name(self.current_module, qualified)
+            if resolved is None:
+                raise TypeCheckError(f"Unable to resolve std path: {qualified}")
+            module_name, item_name = resolved
+            # For stage0, only support function calls via DottedCall
             raise TypeCheckError(
                 f"std.{item_name} must be called with parentheses (function) "
-                f"or used as a type (not yet supported)"
+                f"or used as a type (not yet supported in stage0)"
             )
 
         # Case C: 2-part — reuse existing logic
@@ -566,17 +618,18 @@ class HIRBuilder:
         if base_name == "std":
             if len(parts) < 2:
                 raise TypeCheckError("std module name cannot be used alone")
-            namespace = ".".join(parts[:-1])
-            item_name = parts[-1]
-            if namespace not in self.table.module_decls:
-                raise TypeCheckError(f"Unknown std module: {namespace}")
+            qualified = ".".join(parts)
+            resolved = self.table.resolve_qualified_name(self.current_module, qualified)
+            if resolved is None:
+                raise TypeCheckError(f"Unable to resolve std path: {qualified}")
+            module_name, item_name = resolved
             # Look up function declaration in that module
-            decl = self.table.find_item_in_module(namespace, item_name)
+            decl = self.table.find_item_in_module(module_name, item_name)
             if decl is None:
-                raise TypeCheckError(f"Function '{item_name}' not found in std module '{namespace}'")
+                raise TypeCheckError(f"Function '{item_name}' not found in std module '{module_name}'")
             # It must be a FnDecl
             if not isinstance(decl, FnDecl):
-                raise TypeCheckError(f"'{item_name}' in std module '{namespace}' is not a function")
+                raise TypeCheckError(f"'{item_name}' in std module '{module_name}' is not a function")
             # Get signature from table (already built)
             sig = self.table.fn_signatures.get(item_name)
             if sig is None:
@@ -677,6 +730,9 @@ class HIRBuilder:
         elif isinstance(stmt, LetStmt):
             # Infer tipe dari anotasi atau dari value
             type_name = stmt.type_name
+            if type_name is not None and '.' in type_name:
+                resolved_type = self._resolve_dotted_type(type_name)
+                type_name = resolved_type.name
             if type_name is None and isinstance(stmt.value, StructLiteral):
                 type_name = stmt.value.type_name
             # Jika masih None, coba infer dari value expression
@@ -684,6 +740,7 @@ class HIRBuilder:
                 type_name = self._infer_expr_type(stmt.value).name
 
             type_ref = self._type_ref(type_name)
+            # Translate value with original type_name for context (if any)
             value = self._translate_expr(stmt.value, expected_type=stmt.type_name)
 
             # Verifikasi kecocokan tipe HANYA kalau ada anotasi eksplisit --

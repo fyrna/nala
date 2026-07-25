@@ -1,12 +1,19 @@
+// array literal [N]T{...} -- satu-satunya syntax valid, N & T wajib eksplisit
+
 fn main() -> void {
-    let arr: [3]f32 = [3]f32{1.0, 2.0, 3.0};
-    print_i32!(arr[0]);  // 1
-    arr[1] = 42;
-    print_i32!(arr[1]);  // 42
+    let a: [1]i32 = [1]i32{42};
+    print_i32!(a[0]); // 42
 
-    sample([3]i32{10, 100, 1000});
-}
+    let b: [4]u8 = [4]u8{1, 2, 3, 4};
+    print_u8!(b[0]); // 1
+    print_u8!(b[3]); // 4
 
-fn sample(data: [3]i32) -> void {
-    print_i32!(data[2]);
+    let mut c: [2]i32 = [2]i32{10, 20};
+    print_i32!(c[0]); // 10
+    print_i32!(c[1]); // 20
+
+    // float array
+    let d: [3]f32 = [3]f32{1.0, 2.0, 3.0};
+    print_f32!(d[0]); // 1.0
+    print_f32!(d[2]); // 3.0
 }
