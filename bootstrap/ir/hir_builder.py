@@ -23,7 +23,7 @@ from nala_ast import (
     ArrayLiteral, ArrayIndex,
     # Statements
     Stmt, ReturnStmt, IfStmt, WhileStmt, ForInStmt, AssignStmt, ExprStmt,
-    LetStmt, MatchStmt, MatchArm, ElifClause, ContinueStmt, BreakStmt,
+    LetStmt, MatchStmt, MatchArm, ElifClause, ContinueStmt, BreakStmt, DeferStmt,
 )
 
 from ir.hir import (
@@ -39,7 +39,7 @@ from ir.hir import (
     # Statements
     HParam, HSelfParam, HReturnStmt, HIfStmt, HWhileStmt, HForInStmt,
     HAssignStmt, HExprStmt, HLetStmt, HMatchStmt, HMatchArm,
-    HElifClause, HContinueStmt, HBreakStmt,
+    HElifClause, HContinueStmt, HBreakStmt, HDeferStmt,
     HStmt,
     # Declarations
     HEnumDecl, HStructDecl, HStructField, HUnionDecl, HUnionVariant,
@@ -770,6 +770,9 @@ class HIRBuilder:
 
         elif isinstance(stmt, BreakStmt):
             return HBreakStmt()
+
+        elif isinstance(stmt, DeferStmt):
+            return HDeferStmt(expr=self._translate_expr(stmt.expr))
 
         else:
             raise TypeCheckError(f"Statement AST tidak dikenal: {type(stmt).__name__}")

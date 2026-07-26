@@ -222,13 +222,23 @@ class BreakStmt:
     pass
 
 @dataclass
+class DeferStmt:
+    """
+    defer expr; -- jalankan expr saat keluar scope (LIFO).
+
+    Versi pertama: hanya di level function body langsung (belum nested
+    if/for/match), satu statement/call per defer (belum block form).
+    """
+    expr: Expr
+
+@dataclass
 class LetStmt:
     name: str
     value: Expr
     type_name: str | None = None
     is_mut: bool = False
 
-Stmt = ReturnStmt | IfStmt | WhileStmt | ForInStmt | AssignStmt | LetStmt | ExprStmt | MatchStmt | ContinueStmt | BreakStmt
+Stmt = ReturnStmt | IfStmt | WhileStmt | ForInStmt | AssignStmt | LetStmt | ExprStmt | MatchStmt | ContinueStmt | BreakStmt | DeferStmt
 
 @dataclass
 class FnDecl:

@@ -12,7 +12,7 @@ from nala_ast import (
     BinaryExpr, UnaryExpr, CallExpr, FieldAccess, IntrinsicCall,
     IfExpr, ElifClause, MatchArm, MatchStmt, UnionLiteral,
     Param, ReturnStmt, IfStmt, WhileStmt, ForInStmt, AssignStmt, ExprStmt, LetStmt, FnDecl, SelfParam,
-    ContinueStmt, BreakStmt, StructLiteral,
+    ContinueStmt, BreakStmt, DeferStmt, StructLiteral,
     DottedAccess, DottedCall,
     ArrayLiteral, ArrayIndex,
     UseDecl,
@@ -449,6 +449,8 @@ class Parser:
                 self._advance()
                 self._expect(TokenKind.SEMICOLON)
                 return BreakStmt()
+            elif self._current.text == "defer":
+                return self._parse_defer_stmt()
         elif self._current.kind == TokenKind.LET:
             return self._parse_let_stmt()
 
@@ -513,6 +515,12 @@ class Parser:
             expr = self._parse_expr()
         self._expect(TokenKind.SEMICOLON)
         return ReturnStmt(expr)
+
+    def _parse_defer_stmt(self) -> DeferStmt:
+        self._advance()  # defer
+        expr = self._parse_expr()
+        self._expect(TokenKind.SEMICOLON)
+        return DeferStmt(expr)
 
     def _parse_if_stmt(self) -> IfStmt:
         self._advance()

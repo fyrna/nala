@@ -270,26 +270,38 @@ def _gen_if_expr_as_statements(expr: HIfExpr, temp_name: str, indent: int) -> li
     return lines
 
 # ---- Statement codegen ----
-def gen_stmt(stmt: HStmt, indent: int = 1) -> list[str]:
+def gen_stmt(stmt: HStmt, indent: int = 1, pending_defers: list[HExpr] | None = None) -> list[str]:
+    """
+    Generate satu HIR statement -> baris C.
+
+    pending_defers: daftar expr defer yang aktif di scope function terluar
+    (lihat _gen_fn_body_with_defer). Diteruskan ke SEMUA pemanggilan
+    rekursif gen_stmt (di dalam if/while/for/match) supaya HReturnStmt di
+    level manapun tetap men-trigger flush defer sebelum return -- sesuai
+    semantik "defer jalan saat keluar scope, apapun jalurnya".
+    """
+    if pending_defers is None:
+        pending_defers = []
     pad = "    " * indent
     lines = []
     if isinstance(stmt, HReturnStmt):
+        lines.extend(_gen_defer_flush(pending_defers, indent))
         lines.append(f"{pad}return {gen_expr(stmt.expr)};")
     elif isinstance(stmt, HIfStmt):
         lines.append(f"{pad}if ({gen_expr(stmt.cond)}) {{")
-        for s in stmt.body: lines.extend(gen_stmt(s, indent+1))
+        for s in stmt.body: lines.extend(gen_stmt(s, indent+1, pending_defers))
         lines.append(f"{pad}}}")
         for e in stmt.elifs:
             lines.append(f"{pad}else if ({gen_expr(e.cond)}) {{")
-            for s in e.body: lines.extend(gen_stmt(s, indent+1))
+            for s in e.body: lines.extend(gen_stmt(s, indent+1, pending_defers))
             lines.append(f"{pad}}}")
         if stmt.else_body:
             lines.append(f"{pad}else {{")
-            for s in stmt.else_body: lines.extend(gen_stmt(s, indent+1))
+            for s in stmt.else_body: lines.extend(gen_stmt(s, indent+1, pending_defers))
             lines.append(f"{pad}}}")
     elif isinstance(stmt, HWhileStmt):
         lines.append(f"{pad}while ({gen_expr(stmt.cond)}) {{")
-        for s in stmt.body: lines.extend(gen_stmt(s, indent+1))
+        for s in stmt.body: lines.extend(gen_stmt(s, indent+1, pending_defers))
         lines.append(f"{pad}}}")
     elif isinstance(stmt, HAssignStmt):
         lines.append(f"{pad}{gen_expr(stmt.target)} {stmt.op} {gen_expr(stmt.value)};")
@@ -307,14 +319,21 @@ def gen_stmt(stmt: HStmt, indent: int = 1) -> list[str]:
     elif isinstance(stmt, HBreakStmt):
         lines.append(f"{pad}break;")
     elif isinstance(stmt, HMatchStmt):
-        lines.extend(_gen_match_stmt(stmt, indent))
+        lines.extend(_gen_match_stmt(stmt, indent, pending_defers))
     elif isinstance(stmt, HForInStmt):
-        lines.extend(_gen_forin_stmt(stmt, indent))
+        lines.extend(_gen_forin_stmt(stmt, indent, pending_defers))
+    elif isinstance(stmt, HDeferStmt):
+        raise ValueError(
+            "defer di dalam nested block (if/for/match) belum didukung -- "
+            "saat ini defer hanya valid langsung di top-level function body."
+        )
     else:
         raise TypeError(f"Unknown HIR stmt: {type(stmt).__name__}")
     return lines
 
-def _gen_forin_stmt(stmt: HForInStmt, indent: int) -> list[str]:
+def _gen_forin_stmt(stmt: HForInStmt, indent: int, pending_defers: list[HExpr] | None = None) -> list[str]:
+    if pending_defers is None:
+        pending_defers = []
     pad = "    " * indent
     iter_expr = gen_expr(stmt.iterable)
     parsed = _parse_array_type(stmt.iterable.type_ref.name)
@@ -325,11 +344,13 @@ def _gen_forin_stmt(stmt: HForInStmt, indent: int) -> list[str]:
     idx = _fresh_temp("__i")
     lines = [f"{pad}for (size_t {idx} = 0; {idx} < {size}; {idx}++) {{",
              f"{pad}    {elem_c_type} {stmt.var_name} = {iter_expr}.data[{idx}];"]
-    for s in stmt.body: lines.extend(gen_stmt(s, indent+2))
+    for s in stmt.body: lines.extend(gen_stmt(s, indent+2, pending_defers))
     lines.append(f"{pad}}}")
     return lines
 
-def _gen_match_stmt(stmt: HMatchStmt, indent: int) -> list[str]:
+def _gen_match_stmt(stmt: HMatchStmt, indent: int, pending_defers: list[HExpr] | None = None) -> list[str]:
+    if pending_defers is None:
+        pending_defers = []
     pad = "    " * indent
     match_expr = gen_expr(stmt.expr)
     union_name = stmt.union_name
@@ -353,7 +374,7 @@ def _gen_match_stmt(stmt: HMatchStmt, indent: int) -> list[str]:
         body_pad = "    " * body_indent
         lines.append(f"{body_pad}{matched} = true;")
         for s in arm.body:
-            lines.extend(gen_stmt(s, body_indent))
+            lines.extend(gen_stmt(s, body_indent, pending_defers))
         if has_guard:
             lines.append(f"{pad}    }}")
         lines.append(f"{pad}}}")
@@ -372,10 +393,58 @@ def gen_fn(decl: HFnDecl) -> str:
     prefix = "static " if decl.is_internal else ""
     func_name = f"{decl.struct_name}_{decl.name}" if decl.struct_name is not None else decl.name
     lines = [f"{prefix}{c_return} {func_name}({params_str}) {{"]
-    for s in decl.body:
-        lines.extend(gen_stmt(s, indent=1))
+    lines.extend(_gen_fn_body_with_defer(decl.body, indent=1))
     lines.append("}")
     return "\n".join(lines)
+
+
+def _gen_fn_body_with_defer(body: list[HStmt], indent: int) -> list[str]:
+    """
+    Generate body function dengan dukungan `defer` di level top-level.
+
+    PENTING -- semantik `defer` adalah "jalankan saat KELUAR SCOPE, apapun
+    jalurnya" (language.md). Ini berarti walau `defer` sendiri hanya boleh
+    DIDEKLARASIKAN di top-level function body (belum nested if/for/match --
+    itu fitur terpisah yang belum dibangun), setiap `ret` yang jadi TITIK
+    KELUAR function -- di level manapun ia berada, termasuk di dalam
+    nested if/for/match -- WAJIB tetap men-trigger flush defer top-level
+    sebelum function itu benar-benar return.
+
+    Strategi: HDeferStmt dikumpulkan dulu (dibuang dari body, dicatat
+    expr-nya). Sisa body di-generate lewat gen_stmt() seperti biasa, TAPI
+    pending_defers dioper sebagai context yang mengalir ke SEMUA level
+    nested -- gen_stmt tahu untuk inject flush defer setiap kali ia
+    menghasilkan HReturnStmt, di level manapun itu terjadi.
+    """
+    lines: list[str] = []
+    pending_defers: list[HExpr] = []
+    body_without_defer: list[HStmt] = []
+
+    for stmt in body:
+        if isinstance(stmt, HDeferStmt):
+            pending_defers.append(stmt.expr)
+        else:
+            body_without_defer.append(stmt)
+
+    for stmt in body_without_defer:
+        lines.extend(gen_stmt(stmt, indent=indent, pending_defers=pending_defers))
+
+    # Fall-through di akhir function -- HANYA kalau statement terakhir
+    # BUKAN return (kalau sudah return, defer sudah di-flush di titik
+    # return itu sendiri, di level manapun ia berada).
+    last_is_return = len(body_without_defer) > 0 and isinstance(body_without_defer[-1], HReturnStmt)
+    if not last_is_return:
+        lines.extend(_gen_defer_flush(pending_defers, indent))
+    return lines
+    if not last_stmt_was_return:
+        lines.extend(_gen_defer_flush(pending_defers, indent))
+    return lines
+
+
+def _gen_defer_flush(pending_defers: list[HExpr], indent: int) -> list[str]:
+    """Generate pemanggilan defer secara LIFO (kebalik urutan pendaftaran)."""
+    pad = "    " * indent
+    return [f"{pad}{gen_expr(e)};" for e in reversed(pending_defers)]
 
 def _gen_fn_proto(decl: HFnDecl) -> str:
     c_return = _c_type(decl.return_type)
@@ -428,7 +497,7 @@ def gen_struct(decl: HStructDecl) -> str:
     lines = [f"typedef struct {{"]
     for f in decl.fields:
         lines.append(f"    {_c_type(f.type_ref)} {f.name};")
-    
+
     lines.append(f"}} {decl.name};")
     return "\n".join(lines)
 
@@ -444,22 +513,12 @@ def gen_program(decls: list[HDecl]) -> str:
 
         elif isinstance(d, HFnDecl):
             fwd_protos.append(_gen_fn_proto(d))
-
-    has_main = any(
-        isinstance(d, HFnDecl)
-        and d.name == "main"
-        and d.struct_name is None
-        for d in decls
-    )
-
+    has_main = any(isinstance(d, HFnDecl) and d.name == "main" and d.struct_name is None for d in decls)
     # Header
     header = [
-        "/* Auto-generated by bootstrap/backend/codegen.py no need i guess */",
-        "#include <stdint.h>",
-        "#include <stddef.h>",
-        "#include <stdlib.h>",
-        "#include <string.h>",
-        "#include <stdbool.h>",
+        "/* Auto-generated by bootstrap/backend/codegen.py -- DO NOT EDIT */",
+        "#include <stdint.h>", "#include <stddef.h>", "#include <stdlib.h>",
+        "#include <string.h>", "#include <stdbool.h>",
     ]
 
     runtime_lines = ["", *RUNTIME_C.strip().split("\n")]
@@ -467,13 +526,9 @@ def gen_program(decls: list[HDecl]) -> str:
     type_defs = _gen_array_struct_defs()
 
     for d in decls:
-        if isinstance(d, HEnumDecl):
-            type_defs.append(gen_enum(d))
-        elif isinstance(d, HStructDecl):
-            type_defs.append(gen_struct(d))
-        elif isinstance(d, HUnionDecl):
-            type_defs.append(gen_union(d))
-
+        if isinstance(d, HEnumDecl): type_defs.append(gen_enum(d))
+        elif isinstance(d, HStructDecl): type_defs.append(gen_struct(d))
+        elif isinstance(d, HUnionDecl): type_defs.append(gen_union(d))
     fwd_lines = ["", "/* Forward declarations */"] + fwd_protos
     impls = []
 
@@ -493,13 +548,6 @@ def gen_program(decls: list[HDecl]) -> str:
 
     main_wrapper = []
     if has_main:
-        main_wrapper = [
-            "",
-            "/* Nala main wrapper */",
-            "int main(void) {",
-            "    __nala_main();",
-            "    return 0;",
-            "}",
-        ]
+        main_wrapper = ["", "/* Nala main wrapper */", "int main(void) {", "    __nala_main();", "    return 0;", "}"]
     all_parts = header + runtime_lines + type_defs + fwd_lines + impls + main_wrapper
     return "\n".join(all_parts) + "\n"

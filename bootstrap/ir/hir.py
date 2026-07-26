@@ -259,6 +259,21 @@ class HBreakStmt:
 
 
 @dataclass
+class HDeferStmt:
+    """
+    Statement defer expr; -- sudah typed.
+
+    Kehadiran node ini di HIR murni untuk representasi/debug -- codegen
+    TIDAK menggenerate HDeferStmt secara langsung di tempat deklarasinya.
+    Sebagai gantinya, gen_fn() mengumpulkan semua HDeferStmt di body
+    (level function langsung, belum nested block), lalu inject ulang
+    expr-nya secara LIFO di setiap titik keluar scope (akhir function,
+    dan sebelum tiap HReturnStmt).
+    """
+    expr: HExpr
+
+
+@dataclass
 class HLetStmt:
     """Statement let [mut] name [: type] = value;."""
     name: str
@@ -288,7 +303,7 @@ class HMatchStmt:
 
 HStmt = (
     HReturnStmt | HIfStmt | HWhileStmt | HForInStmt | HAssignStmt | HLetStmt
-    | HExprStmt | HMatchStmt | HContinueStmt | HBreakStmt
+    | HExprStmt | HMatchStmt | HContinueStmt | HBreakStmt | HDeferStmt
 )
 
 
