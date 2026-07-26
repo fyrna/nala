@@ -50,6 +50,9 @@ void __intrinsic_assert(bool cond) {
     if (!cond) { fprintf(stderr, "Assertion failed\n"); abort(); }
 }
 
+/* len intrinsic for slices */
+size_t __intrinsic_len(NalaSlice s) { return s.len; }
+
 /* assert_eq! -- C11 _Generic dispatch, pilih format printf sesuai tipe
  * argumen saat compile time (bukan overload manual per-tipe seperti
  * print_i32!/print_u32! -- ini murni fitur bahasa C, bukan hack). */

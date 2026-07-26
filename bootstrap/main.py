@@ -1,19 +1,20 @@
 # bootstrap/main.py
 """
 Bootstrap Nala compiler entry point.
-Flow: lexer → parser → type checker (AST→HIR) → codegen (HIR→C).
+Flow: lexer → parser → type checker (AST→HIR) → NIR → C.
 """
 from __future__ import annotations
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lexer import Lexer, LexError  # optional, untuk debugging
-from parser.parser import parse_source, ParseError  # <-- update import
-from nala_ast.nodes import UseDecl  # <-- update import
+from lexer import Lexer, LexError
+from parser.parser import parse_source, ParseError
+from nala_ast.nodes import UseDecl
 from backend.codegen import gen_program
-from ir.hir.builder import check_program, check_program_modules  # <-- update import
-from checker.symbol_table import TypeCheckError  # <-- update import
+from ir.hir.builder import check_program, check_program_modules
+from ir import NIRLower
+from checker.symbol_table import SymbolTable, TypeCheckError
 
 
 def _find_mod_na_root(start_path: Path) -> Path:
@@ -147,7 +148,13 @@ def compile_to_c(source_path: str, output_path: str) -> None:
         print(f"error type check: {e}", file=sys.stderr)
         sys.exit(1)
 
-    c_code = gen_program(hir_decls)
+    # LOWER HIR → NIR
+    table = SymbolTable.build_modules(module_decls, module_uses)
+    lower = NIRLower(table)
+    nir_program = lower.lower_program(hir_decls)
+
+    # GENERATE C FROM NIR
+    c_code = gen_program(nir_program)
     Path(output_path).write_text(c_code, encoding="utf-8")
     total_decls = sum(len(d) for d in module_decls.values())
     print(f"OK: {source_path} -> {output_path} ({total_decls} total decls)")
