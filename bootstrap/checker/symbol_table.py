@@ -1,9 +1,6 @@
+# checker/symbol_table.py
 """
-bootstrap/ir/typecheck/symbol_table.py
-
-Tabel simbol untuk lookup deklarasi top-level -- union, enum, struct, fn.
-Multi-module aware: tracks which module each decl belongs to,
-and resolves use aliases per module.
+Symbol table for type checking.
 """
 
 from __future__ import annotations
@@ -20,28 +17,8 @@ class SymbolTable:
     """
     Tabel simbol untuk lookup deklarasi top-level.
 
-    Menyimpan:
-        - union_names, enum_names, struct_names: set[str]
-        - union_variants: dict[union_name, set[variant_names]]
-        - union_payload_types: dict[union_name, dict[variant_name, str|None]]
-        - enum_variants: dict[enum_name, set[variant_names]]
-        - struct_fields: dict[struct_name, dict[field_name, (type_name, is_mut)]]
-        - fn_signatures: dict[fn_name, (param_types, return_type)] -- HANYA
-          top-level `fn`, method (nested di StructDecl.methods) tidak ikut
-          di sini karena resolusinya lewat jalur MethodCall yang terpisah.
-        - method_signatures: dict[(struct_name, method_name), (param_types, return_type)]
-          -- method yang di-nest di StructDecl.methods. Terpisah dari
-          fn_signatures karena method dengan nama sama bisa ada di struct
-          berbeda (mis. Point.distance vs Vector.distance), jadi butuh
-          key gabungan (struct_name, method_name), bukan cuma nama method.
-          param_types di sini TIDAK termasuk self -- cuma parameter selain
-          self (konsisten dengan bagaimana method dipanggil: p.method(args),
-          args tidak termasuk p itu sendiri).
-
-    Module-aware additions:
-        - module_decls: dict[module_name, list[decl]] -- decls per module
-        - module_uses: dict[module_name, list[UseDecl]] -- use aliases per module
-        - item_to_module: dict[item_name, module_name] -- which module owns each item
+    Multi-module aware: tracks which module each decl belongs to,
+    and resolves use aliases per module.
     """
 
     def __init__(self) -> None:
@@ -57,7 +34,7 @@ class SymbolTable:
         # fn_name -> (list of param type_name, return_type)
         self.fn_signatures: dict[str, tuple[list[str], str]] = {}
 
-        # (struct_name, method_name) -> (list of param type_name [tanpa self], return_type)
+        # (struct_name, method_name) -> (list of param type_name, return_type)
         self.method_signatures: dict[tuple[str, str], tuple[list[str], str]] = {}
 
         # Module-aware additions
@@ -92,8 +69,6 @@ class SymbolTable:
                         param_types, m.return_type
                     )
             elif isinstance(decl, FnDecl):
-                # Hanya top-level fn -- method (struct_name terisi) di-skip,
-                # karena dipanggil lewat MethodCall yang jalur resolusinya beda.
                 if decl.struct_name is None:
                     param_types = [p.type_name for p in decl.params]
                     table.fn_signatures[decl.name] = (param_types, decl.return_type)
@@ -101,14 +76,12 @@ class SymbolTable:
 
     @classmethod
     def build_modules(cls, module_decls: dict[str, list], module_uses: dict[str, list]) -> "SymbolTable":
-        """Build SymbolTable from multi-module declarations."""
         all_decls = []
         for decls in module_decls.values():
             all_decls.extend(decls)
         table = cls.build(all_decls)
         table.module_decls = module_decls
         table.module_uses = module_uses
-        # Map item name -> module name for quick lookup
         for module_name, decls in module_decls.items():
             for decl in decls:
                 if hasattr(decl, "name"):
@@ -129,7 +102,6 @@ class SymbolTable:
         return None
 
     def find_item_in_module(self, module_name: str, item_name: str):
-        """Find top-level decl by name in a specific module."""
         decls = self.module_decls.get(module_name, [])
         for decl in decls:
             if getattr(decl, "name", None) == item_name:
@@ -137,7 +109,6 @@ class SymbolTable:
         return None
 
     def find_variant_in_module(self, module_name: str, variant_name: str):
-        """Find if variant_name is a variant of any union/enum in module."""
         decls = self.module_decls.get(module_name, [])
         for decl in decls:
             if isinstance(decl, UnionDecl):
@@ -150,10 +121,6 @@ class SymbolTable:
         return None
 
     def resolve_qualified_name(self, current_module: str, qualified_name: str) -> tuple[str, str] | None:
-        """
-        Resolve module-qualified name like "models.Number" or "std.print".
-        Returns (module_name, item_name) or None if cannot resolve.
-        """
         parts = qualified_name.split('.')
         if len(parts) < 2:
             return None
@@ -161,14 +128,11 @@ class SymbolTable:
         alias = parts[0]
         item_name = '.'.join(parts[1:])
         
-        # Try resolve as module alias
         target_module = self.resolve_alias(current_module, alias)
         if target_module is not None:
             return (target_module, item_name)
         
-        # Try std.* fully qualified
         if alias == "std":
-            # Check if module exists
             for i in range(1, len(parts)):
                 namespace = ".".join(parts[:i])
                 if namespace in self.module_decls:
@@ -176,5 +140,3 @@ class SymbolTable:
                     return (namespace, remaining)
         
         return None
-
-

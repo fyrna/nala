@@ -1,9 +1,64 @@
-# bootstrap/backend/codegen.py
+# backend/codegen.py
 """
 HIR → C translator. No semantic decisions, only translation.
 """
 from __future__ import annotations
-from ir.hir import *
+
+from ir.hir import (
+    # --- Types ---
+    TypeRef,
+    
+    # --- Literals ---
+    HStringLiteral,
+    HIntLiteral,
+    HFloatLiteral,
+    HByteLiteral,
+    HBoolLiteral,
+    
+    # --- Expressions ---
+    HIdent,
+    HFieldAccess,
+    HBinaryExpr,
+    HUnaryExpr,
+    HCallExpr,
+    HMethodCall,
+    HIntrinsicCall,
+    HStructLiteral,
+    HUnionLiteral,
+    HEnumVariantAccess,
+    HIfExpr,
+    HArrayLiteral,
+    HArrayIndex,
+    HExpr,
+    
+    # --- Statements ---
+    HParam,
+    HSelfParam,
+    HReturnStmt,
+    HIfStmt,
+    HWhileStmt,
+    HForInStmt,
+    HAssignStmt,
+    HExprStmt,
+    HLetStmt,
+    HMatchStmt,
+    HMatchArm,
+    HElifClause,
+    HContinueStmt,
+    HBreakStmt,
+    HDeferStmt,
+    HStmt,
+    
+    # --- Declarations ---
+    HEnumDecl,
+    HStructDecl,
+    HStructField,
+    HUnionDecl,
+    HUnionVariant,
+    HFnDecl,
+    HDecl,
+)
+
 try:
     from backend.runtime import RUNTIME_C
 except ImportError:
@@ -434,9 +489,6 @@ def _gen_fn_body_with_defer(body: list[HStmt], indent: int) -> list[str]:
     # return itu sendiri, di level manapun ia berada).
     last_is_return = len(body_without_defer) > 0 and isinstance(body_without_defer[-1], HReturnStmt)
     if not last_is_return:
-        lines.extend(_gen_defer_flush(pending_defers, indent))
-    return lines
-    if not last_stmt_was_return:
         lines.extend(_gen_defer_flush(pending_defers, indent))
     return lines
 

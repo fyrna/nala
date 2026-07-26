@@ -1,14 +1,18 @@
-# bootstrap/nala_ast.py
+# nala_ast/nodes.py
 """
 AST for Nala. Parser produces raw AST with DottedAccess/DottedCall; type checker resolves them.
 All nodes are dataclasses for debuggability.
 """
 from dataclasses import dataclass, field
+from typing import Union
 
+
+# --- Top-level declarations ---
 @dataclass
 class UseDecl:
     module_path: str
     alias: str | None = None
+
 
 @dataclass
 class EnumDecl:
@@ -16,17 +20,20 @@ class EnumDecl:
     name: str
     variants: list[str] = field(default_factory=list)
 
+
 @dataclass
 class UnionVariant:
     """One variant: VariantName(type1, ...)"""
     name: str
     payload_types: list[str] = field(default_factory=list)
 
+
 @dataclass
 class UnionDecl:
     """const Name = union { Variant(type), ... }; tagged union."""
     name: str
     variants: list[UnionVariant] = field(default_factory=list)
+
 
 @dataclass
 class StructField:
@@ -35,6 +42,7 @@ class StructField:
     type_name: str
     is_mut: bool = False
 
+
 @dataclass
 class StructDecl:
     """const Name = struct { fields; methods... };"""
@@ -42,35 +50,43 @@ class StructDecl:
     fields: list[StructField] = field(default_factory=list)
     methods: list["FnDecl"] = field(default_factory=list)
 
+
 # --- Expressions ---
 @dataclass
 class Ident:
     name: str
 
+
 @dataclass
 class StringLiteral:
     value: str
+
 
 @dataclass
 class IntLiteral:
     value: str
 
+
 @dataclass
 class FloatLiteral:
     value: str
+
 
 @dataclass
 class BoolLiteral:
     value: bool
 
+
 @dataclass
 class ByteLiteral:
     value: str
+
 
 @dataclass
 class FieldAccess:
     obj: "Expr"
     field: str
+
 
 @dataclass
 class BinaryExpr:
@@ -78,15 +94,18 @@ class BinaryExpr:
     left: "Expr"
     right: "Expr"
 
+
 @dataclass
 class UnaryExpr:
     op: str
     operand: "Expr"
 
+
 @dataclass
 class CallExpr:
     callee: str
     args: list["Expr"] = field(default_factory=list)
+
 
 @dataclass
 class MethodCall:
@@ -94,15 +113,18 @@ class MethodCall:
     method: str
     args: list["Expr"] = field(default_factory=list)
 
+
 @dataclass
 class IntrinsicCall:
     name: str
     args: list["Expr"] = field(default_factory=list)
 
+
 @dataclass
 class StructLiteral:
     type_name: str
     fields: list[tuple[str, "Expr"]] = field(default_factory=list)
+
 
 @dataclass
 class UnionLiteral:
@@ -110,21 +132,25 @@ class UnionLiteral:
     variant_name: str
     payload: "Expr | None" = None
 
+
 @dataclass
 class ArrayLiteral:
     size: int
     element_type: str
     elements: list["Expr"]
 
+
 @dataclass
 class ArrayIndex:
     obj: "Expr"
     index: "Expr"
 
+
 @dataclass
 class EnumVariantAccess:
     enum_name: str
     variant_name: str
+
 
 # Neutral nodes that must be resolved by type checker
 @dataclass
@@ -132,17 +158,20 @@ class DottedAccess:
     base: "Expr"
     name: str
 
+
 @dataclass
 class DottedCall:
     base: "Expr"
     name: str
     args: list["Expr"] = field(default_factory=list)
 
+
 @dataclass
 class IfExpr:
     cond: "Expr"
     then_branch: "Expr"
     else_branch: "Expr"
+
 
 @dataclass
 class MatchArm:
@@ -152,18 +181,22 @@ class MatchArm:
     bind: str | None = None
     guard: "Expr | None" = None
 
+
 @dataclass
 class MatchStmt:
     expr: "Expr"
     arms: list[MatchArm]
 
-Expr = (
-    BinaryExpr | UnaryExpr | CallExpr | MethodCall | IntrinsicCall | Ident
-    | StringLiteral | IntLiteral | FloatLiteral | BoolLiteral | ByteLiteral | FieldAccess | IfExpr
-    | StructLiteral | UnionLiteral | EnumVariantAccess
-    | DottedAccess | DottedCall
-    | ArrayLiteral | ArrayIndex
-)
+
+# Type aliases
+Expr = Union[
+    BinaryExpr, UnaryExpr, CallExpr, MethodCall, IntrinsicCall, Ident,
+    StringLiteral, IntLiteral, FloatLiteral, BoolLiteral, ByteLiteral, FieldAccess, IfExpr,
+    StructLiteral, UnionLiteral, EnumVariantAccess,
+    DottedAccess, DottedCall,
+    ArrayLiteral, ArrayIndex,
+]
+
 
 # --- Statements ---
 @dataclass
@@ -171,19 +204,23 @@ class Param:
     name: str
     type_name: str
 
+
 @dataclass
 class SelfParam:
     is_mut: bool = False
     is_ref: bool = True
 
+
 @dataclass
 class ReturnStmt:
     expr: Expr
+
 
 @dataclass
 class ElifClause:
     cond: Expr
     body: list["Stmt"]
+
 
 @dataclass
 class IfStmt:
@@ -192,10 +229,12 @@ class IfStmt:
     elifs: list[ElifClause] = field(default_factory=list)
     else_body: list["Stmt"] = field(default_factory=list)
 
+
 @dataclass
 class WhileStmt:
     cond: Expr
     body: list["Stmt"] = field(default_factory=list)
+
 
 @dataclass
 class ForInStmt:
@@ -203,23 +242,28 @@ class ForInStmt:
     iterable: "Expr"
     body: list["Stmt"] = field(default_factory=list)
 
+
 @dataclass
 class AssignStmt:
     target: Expr
     value: Expr
     op: str = "="
 
+
 @dataclass
 class ExprStmt:
     expr: Expr
+
 
 @dataclass
 class ContinueStmt:
     pass
 
+
 @dataclass
 class BreakStmt:
     pass
+
 
 @dataclass
 class DeferStmt:
@@ -231,6 +275,7 @@ class DeferStmt:
     """
     expr: Expr
 
+
 @dataclass
 class LetStmt:
     name: str
@@ -238,7 +283,13 @@ class LetStmt:
     type_name: str | None = None
     is_mut: bool = False
 
-Stmt = ReturnStmt | IfStmt | WhileStmt | ForInStmt | AssignStmt | LetStmt | ExprStmt | MatchStmt | ContinueStmt | BreakStmt | DeferStmt
+
+# Type alias for statements
+Stmt = Union[
+    ReturnStmt, IfStmt, WhileStmt, ForInStmt, AssignStmt, LetStmt, ExprStmt,
+    MatchStmt, ContinueStmt, BreakStmt, DeferStmt,
+]
+
 
 @dataclass
 class FnDecl:

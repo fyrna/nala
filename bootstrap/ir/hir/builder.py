@@ -1,6 +1,5 @@
+# ir/hir/builder.py
 """
-bootstrap/ir/hir_builder.py
-
 HIRBuilder -- AST -> HIR Translator.
 
 Tanggung jawab TUNGGAL modul ini:
@@ -8,7 +7,6 @@ Tanggung jawab TUNGGAL modul ini:
     2. Buat HIR "final" (resolved + typed) yang baru
     3. TIDAK mutasi AST -- AST tetap immutable setelah parse
 """
-
 from __future__ import annotations
 
 from nala_ast import (
@@ -26,7 +24,7 @@ from nala_ast import (
     LetStmt, MatchStmt, MatchArm, ElifClause, ContinueStmt, BreakStmt, DeferStmt,
 )
 
-from ir.hir import (
+from ir.hir.nodes import (
     # Type
     TypeRef,
     # Expressions
@@ -47,16 +45,13 @@ from ir.hir import (
     HDecl,
 )
 
-from ir.typecheck.symbol_table import SymbolTable, TypeCheckError
-from ir.typecheck.inference import (
+from checker.symbol_table import SymbolTable, TypeCheckError
+from checker.inference import (
     infer_expr_type, infer_field_type, intrinsic_return_type,
 )
-from ir.typecheck.type_compat import (
+from checker.type_compat import (
     parse_type_kind, types_compatible, is_integer_type_name, is_float_type_name,
 )
-
-
-# Type Checker / HIR Builder
 
 class HIRBuilder:
     """
@@ -74,6 +69,7 @@ class HIRBuilder:
         self.local_types: dict[str, str] = {}
         self.current_struct_name: str | None = None
         self.current_module = current_module
+        self._defer_nesting_level: int = 0  # 0 = top-level fn body, >0 = nested block
 
     # --- Helper: TypeRef ---
 
@@ -83,7 +79,7 @@ class HIRBuilder:
 
     def _array_element_type(self, type_name: str) -> str | None:
         """Dapatkan tipe elemen dari [N]T, atau None -- via parse_type_kind."""
-        from ir.typecheck.type_compat import ArrayKind, PrimitiveKind, NamedKind
+        from checker.type_compat import ArrayKind, PrimitiveKind, NamedKind
         kind = parse_type_kind(type_name)
         if isinstance(kind, ArrayKind):
             elem = kind.element
@@ -114,7 +110,7 @@ class HIRBuilder:
         expected_kind = parse_type_kind(expected_type_name)
         actual_kind = parse_type_kind(actual.type_ref.name)
 
-        from ir.typecheck.type_compat import UnknownKind
+        from checker.type_compat import UnknownKind
         if isinstance(expected_kind, UnknownKind) or isinstance(actual_kind, UnknownKind):
             return
 
@@ -706,17 +702,21 @@ class HIRBuilder:
 
         elif isinstance(stmt, IfStmt):
             cond = self._translate_expr(stmt.cond)
+            self._defer_nesting_level += 1
             body = [self._translate_stmt(s) for s in stmt.body]
-            elifs = [HElifClause(
-                cond=self._translate_expr(e.cond),
-                body=[self._translate_stmt(s) for s in e.body]
-            ) for e in stmt.elifs]
+            elifs = []
+            for e in stmt.elifs:
+                e_body = [self._translate_stmt(s) for s in e.body]
+                elifs.append(HElifClause(cond=self._translate_expr(e.cond), body=e_body))
             else_body = [self._translate_stmt(s) for s in stmt.else_body]
+            self._defer_nesting_level -= 1
             return HIfStmt(cond=cond, body=body, elifs=elifs, else_body=else_body)
 
         elif isinstance(stmt, WhileStmt):
             cond = self._translate_expr(stmt.cond)
+            self._defer_nesting_level += 1
             body = [self._translate_stmt(s) for s in stmt.body]
+            self._defer_nesting_level -= 1
             return HWhileStmt(cond=cond, body=body)
 
         elif isinstance(stmt, AssignStmt):
@@ -772,6 +772,11 @@ class HIRBuilder:
             return HBreakStmt()
 
         elif isinstance(stmt, DeferStmt):
+            if self._defer_nesting_level > 0:
+                raise TypeCheckError(
+                    "defer hanya boleh dideklarasikan di top-level function body "
+                    "(belum didukung di dalam if/while/for/match)."
+                )
             return HDeferStmt(expr=self._translate_expr(stmt.expr))
 
         else:
@@ -791,7 +796,9 @@ class HIRBuilder:
         # Track loop variable
         self.local_types[stmt.var_name] = elem_type
 
+        self._defer_nesting_level += 1
         body = [self._translate_stmt(s) for s in stmt.body]
+        self._defer_nesting_level -= 1
 
         return HForInStmt(
             var_name=stmt.var_name,
@@ -844,7 +851,9 @@ class HIRBuilder:
                 bind_type = TypeRef(payload_type)
 
             guard = self._translate_expr(arm.guard) if arm.guard is not None else None
+            self._defer_nesting_level += 1
             body = [self._translate_stmt(s) for s in arm.body]
+            self._defer_nesting_level -= 1
 
             hir_arms.append(HMatchArm(
                 variant=arm.variant, body=body, union_name=union_name,
@@ -909,7 +918,10 @@ class HIRBuilder:
                 self.local_types["self"] = decl.struct_name
 
         # Translate body
+        old_defer_level = self._defer_nesting_level
+        self._defer_nesting_level = 0
         body = [self._translate_stmt(s) for s in decl.body]
+        self._defer_nesting_level = old_defer_level
 
         result = HFnDecl(
             name=decl.name,

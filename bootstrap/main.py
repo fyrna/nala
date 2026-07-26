@@ -7,8 +7,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
-from parser import parse_source, ParseError
-from nala_ast import UseDecl
+
+from lexer import Lexer, LexError  # optional, untuk debugging
+from parser.parser import parse_source, ParseError  # <-- update import
+from nala_ast.nodes import UseDecl  # <-- update import
+from backend.codegen import gen_program
+from ir.hir.builder import check_program, check_program_modules  # <-- update import
+from checker.symbol_table import TypeCheckError  # <-- update import
+
 
 def _find_mod_na_root(start_path: Path) -> Path:
     """Find root project by searching for mod.na upwards from start_path."""
@@ -53,6 +59,7 @@ def _find_stdlib_path() -> Path:
         return Path(env_path)
     return Path.home() / ".nala" / "library" / "std"
 
+
 def _discover_modules_with_prefix(root: Path, prefix: str) -> dict[str, list[Path]]:
     modules = {}
     def scan_dir(dir_path: Path, module_prefix: str) -> None:
@@ -65,15 +72,12 @@ def _discover_modules_with_prefix(root: Path, prefix: str) -> dict[str, list[Pat
     scan_dir(root, prefix)
     return modules
 
+
 def compile_to_c(source_path: str, output_path: str) -> None:
     """
     Full compilation: discover modules via mod.na, parse per module,
     type-check with module context, generate C.
     """
-    from backend.codegen import gen_program
-    from ir.hir_builder import check_program_modules
-    from ir.typecheck.symbol_table import TypeCheckError
-
     input_path = Path(source_path)
 
     # Single file mode: compile just that file as standalone module
@@ -147,6 +151,7 @@ def compile_to_c(source_path: str, output_path: str) -> None:
     Path(output_path).write_text(c_code, encoding="utf-8")
     total_decls = sum(len(d) for d in module_decls.values())
     print(f"OK: {source_path} -> {output_path} ({total_decls} total decls)")
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:

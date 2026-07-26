@@ -1,9 +1,9 @@
-# ir/__init__.py
+# ir/hir/__init__.py
 """
-Intermediate Representations for Nala compiler.
+HIR (High-level Intermediate Representation) module.
 """
 
-from ir.hir import (
+from ir.hir.nodes import (
     # --- Types ---
     TypeRef,
     

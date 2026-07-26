@@ -1,17 +1,6 @@
+# checker/inference.py
 """
-bootstrap/ir/typecheck/inference.py
-
-Type inference -- "menebak" tipe suatu ekspresi AST/HIR.
-
-PENTING: modul ini cuma soal MENEBAK tipe, bukan MEMVERIFIKASI kecocokan
-dua tipe. Untuk verifikasi kecocokan (mis. "apakah tipe expr cocok dengan
-anotasi let"), lihat type_compat.py -- types_compatible().
-
-Fungsi di sini sengaja berdiri sendiri (bukan method class) supaya tidak
-diam-diam bergantung ke banyak state HIRBuilder -- setiap state yang
-dibutuhkan (symbol table, local variable types, current struct context)
-diterima eksplisit sebagai parameter, sesuai prinsip Nala "explicit >
-magic" yang coba diikuti compiler ini juga secara arsitektur.
+Type inference for expressions.
 """
 
 from __future__ import annotations
@@ -21,8 +10,8 @@ from nala_ast import (
     StructLiteral, UnionLiteral, EnumVariantAccess, ArrayLiteral, CallExpr,
 )
 from ir.hir import TypeRef, HExpr, HIdent, HFieldAccess
-from ir.typecheck.symbol_table import SymbolTable
-from ir.typecheck.type_compat import is_integer_type_name, is_float_type_name
+from checker.symbol_table import SymbolTable
+from checker.type_compat import is_integer_type_name, is_float_type_name
 
 
 def infer_expr_type(
@@ -32,27 +21,9 @@ def infer_expr_type(
     current_struct_name: str | None,
     expected_type: str | None = None,
 ) -> TypeRef:
-    """
-    Infer tipe dari ekspresi AST.
-
-    Args:
-        expr: ekspresi AST yang mau ditebak tipenya
-        table: SymbolTable hasil build dari semua top-level decl
-        local_types: nama variabel lokal -> nama tipe (state HIRBuilder)
-        current_struct_name: nama struct yang sedang diproses (untuk `self`)
-        expected_type: tipe yang diharapkan dari context (mis. anotasi
-            `let x: i64`, atau tipe parameter fungsi). Dipakai KHUSUS untuk
-            resolve literal numerik (IntLiteral/FloatLiteral) supaya tidak
-            selalu hardcode i32/f32 -- lihat catatan di IntLiteral/FloatLiteral
-            branch di bawah. Untuk ekspresi lain, parameter ini diabaikan.
-    """
     if isinstance(expr, StringLiteral):
         return TypeRef("str")
     elif isinstance(expr, IntLiteral):
-        # Kalau context minta tipe integer spesifik, literal ini "jadi"
-        # tipe itu -- bukan selalu i32. Lintas kelas (mis. context minta
-        # float atau string) tetap fallback ke i32, karena integer literal
-        # apa adanya memang integer.
         if expected_type is not None and is_integer_type_name(expected_type):
             return TypeRef(expected_type)
         return TypeRef("i32")
@@ -76,9 +47,6 @@ def infer_expr_type(
     elif isinstance(expr, EnumVariantAccess):
         return TypeRef(expr.enum_name)
     elif isinstance(expr, ArrayLiteral):
-        # Size dan element type sudah eksplisit di literal-nya sendiri
-        # ([N]T{...}) -- tidak perlu (dan tidak boleh) ditebak dari
-        # elemen pertama.
         return TypeRef(f"[{expr.size}]{expr.element_type}")
     elif isinstance(expr, CallExpr):
         sig = table.fn_signatures.get(expr.callee)
@@ -86,7 +54,7 @@ def infer_expr_type(
             _param_types, return_type = sig
             return TypeRef(return_type)
         return TypeRef("void")
-    return TypeRef("void")  # fallback
+    return TypeRef("void")
 
 
 def infer_field_type(
@@ -96,7 +64,6 @@ def infer_field_type(
     local_types: dict[str, str],
     current_struct_name: str | None,
 ) -> TypeRef:
-    """Infer tipe field dari struct definition."""
     struct_name = None
     if isinstance(obj, HIdent):
         if obj.name == "self" and current_struct_name:
@@ -104,7 +71,6 @@ def infer_field_type(
         elif obj.name in local_types:
             struct_name = local_types[obj.name]
     elif isinstance(obj, HFieldAccess):
-        # Chain: a.b.c -- belum support di stage0
         pass
 
     if struct_name and struct_name in table.struct_fields:
@@ -115,11 +81,10 @@ def infer_field_type(
 
 
 def intrinsic_return_type(name: str) -> TypeRef:
-    """Infer return type dari intrinsic name."""
     if name in ("print_u8", "print_u16", "print_u32", "print_u64",
                 "print_i8", "print_i16", "print_i32", "print_i64",
                 "print_f32", "print_f64", "print_bool", "print_string",
-                "assert", "assert_eq"):
+                "assert", "assert_eq", "assert_ne"):
         return TypeRef("void")
     elif name == "byte_len":
         return TypeRef("usize")

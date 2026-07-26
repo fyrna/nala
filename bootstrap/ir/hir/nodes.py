@@ -1,4 +1,7 @@
-# bootstrap/ir/hir.py
+# ir/hir/nodes.py
+"""
+HIR (High-level Intermediate Representation) node definitions.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,7 +24,7 @@ class TypeRef:
         return self.name
 
 
-# expression
+# --- Expressions ---
 
 @dataclass
 class HIdent:
@@ -46,13 +49,7 @@ class HIntLiteral:
 
 @dataclass
 class HFloatLiteral:
-    """
-    Literal float
-
-    Mengikuti pola HIntLiteral: type_ref default "f32", belum
-    context-aware terhadap tipe target (mis. f64). Perbaikan supaya
-    literal numerik infer dari context adalah isu terpisah.
-    """
+    """Literal float."""
     value: str
     type_ref: TypeRef = field(default_factory=lambda: TypeRef("f32"))
 
@@ -118,10 +115,7 @@ class HCallExpr:
 
 @dataclass
 class HMethodCall:
-    """Pemanggilan method: obj.method(args).
-
-    struct_name SELALU terisi (wajib di HIR).
-    """
+    """Pemanggilan method: obj.method(args)."""
     obj: HExpr
     method: str
     args: list[HExpr]
@@ -171,6 +165,7 @@ class HIfExpr:
     type_ref: TypeRef
 
 
+# Type alias untuk ekspresi
 HExpr = (
     HIdent | HStringLiteral | HIntLiteral | HFloatLiteral | HBoolLiteral | HByteLiteral
     | HFieldAccess | HBinaryExpr | HUnaryExpr | HCallExpr
@@ -179,6 +174,8 @@ HExpr = (
     | HArrayLiteral | HArrayIndex
 )
 
+
+# --- Statements ---
 
 @dataclass
 class HParam:
@@ -229,7 +226,7 @@ class HForInStmt:
     var_name: str
     iterable: HExpr
     body: list[HStmt]
-    var_type: TypeRef  # tipe dari loop variable (element type)
+    var_type: TypeRef
 
 
 @dataclass
@@ -262,13 +259,6 @@ class HBreakStmt:
 class HDeferStmt:
     """
     Statement defer expr; -- sudah typed.
-
-    Kehadiran node ini di HIR murni untuk representasi/debug -- codegen
-    TIDAK menggenerate HDeferStmt secara langsung di tempat deklarasinya.
-    Sebagai gantinya, gen_fn() mengumpulkan semua HDeferStmt di body
-    (level function langsung, belum nested block), lalu inject ulang
-    expr-nya secara LIFO di setiap titik keluar scope (akhir function,
-    dan sebelum tiap HReturnStmt).
     """
     expr: HExpr
 
@@ -301,11 +291,14 @@ class HMatchStmt:
     union_name: str
 
 
+# Type alias untuk statements
 HStmt = (
     HReturnStmt | HIfStmt | HWhileStmt | HForInStmt | HAssignStmt | HLetStmt
     | HExprStmt | HMatchStmt | HContinueStmt | HBreakStmt | HDeferStmt
 )
 
+
+# --- Top-level Declarations ---
 
 @dataclass
 class HEnumDecl:
@@ -356,4 +349,5 @@ class HFnDecl:
     struct_name: str | None = None
 
 
+# Type alias untuk deklarasi
 HDecl = HEnumDecl | HStructDecl | HUnionDecl | HFnDecl

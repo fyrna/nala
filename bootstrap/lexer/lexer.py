@@ -1,83 +1,17 @@
-# bootstrap/lexer.py
+# lexer/lexer.py
 """
 Tokenizer for Nala source. One-pass scanning, 1-char lookahead, UNKNOWN fallback.
-Token includes kind, text, Span(start,end,line,col).
 """
 from __future__ import annotations
-from dataclasses import dataclass
-from enum import Enum, auto
 from typing import Optional
 
-class TokenKind(Enum):
-    # Literals: IDENT, INT_LITERAL, FLOAT_LITERAL, STRING_LITERAL, BYTE_LITERAL
-    IDENT = auto()
-    INT_LITERAL = auto()
-    FLOAT_LITERAL = auto()
-    STRING_LITERAL = auto()
-    BYTE_LITERAL = auto()
-    # Operators: PLUS, MINUS, STAR, SLASH, EQ, EQ_EQ, PLUS_EQ, GT_EQ, LT_EQ, BANG, AMPERSAND
-    PLUS = auto()
-    MINUS = auto()
-    STAR = auto()
-    SLASH = auto()
-    PERCENT = auto()
-    EQ = auto()
-    EQ_EQ = auto()
-    PLUS_EQ = auto()
-    GT_EQ = auto()
-    LT_EQ = auto()
-    BANG = auto()
-    AMPERSAND = auto()
-    # Delimiters: parens, braces, brackets, comma, colon, semicolon, dot, arrows
-    LPAREN = auto()
-    RPAREN = auto()
-    LBRACE = auto()
-    RBRACE = auto()
-    LBRACKET = auto()
-    RBRACKET = auto()
-    COMMA = auto()
-    COLON = auto()
-    ARROW = auto()
-    FAT_ARROW = auto()
-    GT = auto()
-    LT = auto()
-    SEMICOLON = auto()
-    DOT = auto()
-    # Keywords
-    LET = auto()
-    MUT = auto()
-    FN = auto()
-    USE = auto()
-    AS = auto()
-    UNKNOWN = auto()
-    EOF = auto()
+from lexer.token import Token, TokenKind, Span, get_keyword_kind
 
-_KEYWORDS = {
-    "let": TokenKind.LET,
-    "mut": TokenKind.MUT,
-    "fn": TokenKind.FN,
-    "use": TokenKind.USE,
-    "as": TokenKind.AS,
-}
-
-@dataclass(frozen=True)
-class Span:
-    """Token position: start/end offsets (0-indexed), line/col (1-indexed)."""
-    start: int
-    end: int
-    line: int
-    col: int
-
-@dataclass(frozen=True)
-class Token:
-    """Lexical unit: kind, original text, span."""
-    kind: TokenKind
-    text: str
-    span: Span
 
 class LexError(Exception):
     """Fatal lexing error (e.g., unterminated string/byte literal)."""
     pass
+
 
 class Lexer:
     """
@@ -143,7 +77,7 @@ class Lexer:
         while not self._is_eof() and (self._current().isalnum() or self._current() == "_"):
             self._advance()
         text = self.source[start_pos:self.pos]
-        kind = _KEYWORDS.get(text, TokenKind.IDENT)
+        kind = get_keyword_kind(text) or TokenKind.IDENT
         return Token(kind, text, Span(start_pos,self.pos,start_line,start_col))
 
     def _lex_number(self, start_pos:int, start_line:int, start_col:int) -> Token:
@@ -230,6 +164,7 @@ class Lexer:
         text = self.source[start_pos:self.pos]
         return Token(kind, text, Span(start_pos,self.pos,start_line,start_col))
 
+
 def tokenize_all(source: str) -> list[Token]:
     """Debug helper: collect all tokens from source."""
     tokens = []
@@ -241,10 +176,11 @@ def tokenize_all(source: str) -> list[Token]:
             break
     return tokens
 
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:
-        print("usage: python lexer.py <file.na>")
+        print("usage: python -m lexer.lexer <file.na>")
         sys.exit(1)
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         src = f.read()
