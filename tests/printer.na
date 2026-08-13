@@ -1,7 +1,0 @@
-fn printer(name: []u8) -> void {
-	print_string!(name);
-}
-
-fn main() {
-	printer("fyrna");
-}
