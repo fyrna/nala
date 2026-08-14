@@ -15,10 +15,10 @@ from lexer.token import (
 from nala_ast.nodes import (
     TypeExpr, NamedTypeExpr, GenericTypeExpr, ArrayTypeExpr, SliceTypeExpr,
     PointerTypeExpr, ReferenceTypeExpr, SatisfyTypeExpr, FunctionTypeExpr,
-    CompilerHint, UseDecl, EnumVariantDecl, EnumDecl, SumVariantDecl,
+    BoundedTypeExpr, IntrinsicTypeExpr, CompilerHint, UseDecl,
+    EnumVariantDecl, EnumDecl, SumVariantDecl,
     SumDecl, StructField, StructDecl, TraitMethodDecl, TraitDecl,
     SatisfyDecl, ForeignDecl, FnDecl, Param, SelfParam, TestDecl, Stmt,
-    IntrinsicTypeExpr,
 )
 
 from parser.expr import ExprParser, ParseError as ExprParseError
@@ -98,6 +98,9 @@ class Parser(ExprParser, StmtParser):
         mengharapkan tipe (setelah ':', '->', dst), tidak pernah dari
         posisi ekspresi biasa.
         """
+        if self._check(Operator(OperatorKind.TICK)):
+            return self._parse_bounded_type_expr()
+
         # self! — type-level intrinsic (intrinsics.md, trait.md §2)
         # Harus dicek SEBELUM named path, karena `self` adalah Keyword, bukan IDENT.
         if self._check(Keyword(KeywordKind.SELF)):
@@ -168,6 +171,18 @@ class Parser(ExprParser, StmtParser):
             is_mut = True
         referent = self._parse_type_expr()
         return ReferenceTypeExpr(referent=referent, is_mut=is_mut)
+
+    def _parse_bounded_type_expr(self) -> BoundedTypeExpr:
+        """
+        'T atau 'mut T — Bounded Pointer (lifetime.md §3).
+        """
+        self._expect(Operator(OperatorKind.TICK))
+        is_mut = False
+        if self._check(Keyword(KeywordKind.MUT)):
+            self._advance()
+            is_mut = True
+        bounded = self._parse_type_expr()
+        return BoundedTypeExpr(bounded=bounded, is_mut=is_mut)
 
     def _parse_function_type_expr(self) -> FunctionTypeExpr:
         self._expect(Delimiter(DelimiterKind.LPAREN))

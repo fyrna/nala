@@ -100,6 +100,7 @@ class OperatorKind(Enum):
 
     BANG = auto()       # ! -- unary not, DAN suffix intrinsic (sizeof!, self!, dst)
     AMPERSAND = auto()  # & -- &T, &mut T
+    TICK = auto()       # ' -- bounded pointer ('T / 'mut T)
     PIPE = auto()       # | -- bitwise or, flags, OR-pattern
     CARET = auto()      # ^ -- bitwise xor
     TILDE = auto()      # ~ -- bitwise not

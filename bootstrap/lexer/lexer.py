@@ -46,7 +46,12 @@ class Lexer:
         if c == '"':
             return self._lex_string(start_pos, start_line, start_col)
         if c == "'":
-            return self._lex_byte(start_pos, start_line, start_col)
+            # byte literal selalu 'X' (satu karakter di antara).
+            # kalau pola itu ndak cocok maka ini adalah bounded pointer
+            if self._peek() is not None and self._peek(2) == "'":
+                return self._lex_byte(start_pos, start_line, start_col)
+            self._advance() # consume '
+            return Token(Operator(OperatorKind.TICK), "'", Span(start_pos, self.pos, start_line, start_col))
         if c == "`":
             return self._lex_backtick_ident(start_pos, start_line, start_col)
         return self._lex_symbol(start_pos, start_line, start_col)
