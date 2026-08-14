@@ -61,6 +61,7 @@ class KeywordKind(Enum):
     # --- Special void-like types ---
     VOID = auto()
     UNIT = auto()
+    SOLE = auto() # unit literal
 
     # --- Testing ---
     TEST = auto()
@@ -132,6 +133,7 @@ class LiteralKind(Enum):
     FLOAT_LITERAL = auto()
     STRING_LITERAL = auto()
     BYTE_LITERAL = auto()
+    UNIT_LITERAL = auto()
 
 
 class SpecialKind(Enum):
@@ -232,6 +234,7 @@ _KEYWORDS: dict[str, KeywordKind] = {
 
     "void": KeywordKind.VOID,
     "unit": KeywordKind.UNIT,
+    "sole": KeywordKind.SOLE,
 
     "test": KeywordKind.TEST,
     "foreign": KeywordKind.FOREIGN,
@@ -249,3 +252,10 @@ def is_keyword(text: str) -> bool:
 def get_keyword_kind(text: str) -> "KeywordKind | None":
     """Get KeywordKind for keyword text, or None if not a keyword."""
     return _KEYWORDS.get(text)
+
+def describe_token_kind(kind: TokenKind) -> str:
+    """
+    Format TokenKind untuk pesan error yang manusiawi -- mis.
+    "Keyword.LET", "Operator.PLUS", "Delimiter.LBRACE".
+    """
+    return f"{type(kind).__name__}.{kind.value.name}"

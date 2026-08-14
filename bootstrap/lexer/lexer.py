@@ -396,5 +396,59 @@ if __name__ == "__main__":
         sys.exit(1)
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         src = f.read()
-    for t in tokenize_all(src):
-        print(f"{type(t.kind).__name__}.{t.kind.value.name:20} {t.text!r:20} {t.span}")
+
+    tokens = tokenize_all(src)
+
+    # ── Pretty print token stream ──────────────────────────────────
+
+    max_idx_width = max(3, len(str(len(tokens))))
+    max_kind_width = max(
+        len(f"{type(t.kind).__name__}.{t.kind.value.name}")
+        for t in tokens
+    )
+    max_text_width = max(len(repr(t.text)) for t in tokens)
+
+    max_idx_width = max(max_idx_width, 3)
+    max_kind_width = max(max_kind_width, 18)
+    max_text_width = max(max_text_width, 12)
+
+    H, V = "─", "│"
+    TL, TM, TR = "┌", "┬", "┐"
+    ML, MM, MR = "├", "┼", "┤"
+    BL, BM, BR = "└", "┴", "┘"
+
+    def _sep(left, mid, right, fill):
+        parts = [
+            fill * (max_idx_width + 2),
+            fill * (max_kind_width + 2),
+            fill * (max_text_width + 2),
+            fill * 15,
+        ]
+        return left + mid.join(parts) + right
+
+    total_width = max_idx_width + max_kind_width + max_text_width + 25
+
+    print()
+    print(f"  {'Token Stream':^{total_width}}")
+    print(_sep(TL, TM, TR, H))
+    print(
+        f"{V} {'#':^{max_idx_width}} {V} "
+        f"{'Kind':^{max_kind_width}} {V} "
+        f"{'Text':^{max_text_width}} {V} "
+        f"{'Position':^13} {V}"
+    )
+    print(_sep(ML, MM, MR, H))
+
+    for i, t in enumerate(tokens, 1):
+        kind_str = f"{type(t.kind).__name__}.{t.kind.value.name}"
+        pos_str = f"{t.span.line}:{t.span.col}"
+        print(
+            f"{V} {i:^{max_idx_width}} {V} "
+            f"{kind_str:^{max_kind_width}} {V} "
+            f"{t.text!r:^{max_text_width}} {V} "
+            f"{pos_str:^13} {V}"
+        )
+
+    print(_sep(BL, BM, BR, H))
+    print(f"  Total: {len(tokens)} tokens")
+    print()
