@@ -15,7 +15,8 @@ from lexer.token import (
 from nala_ast.nodes import (
     TypeExpr, NamedTypeExpr, GenericTypeExpr, ArrayTypeExpr, SliceTypeExpr,
     PointerTypeExpr, ReferenceTypeExpr, SatisfyTypeExpr, FunctionTypeExpr,
-    BoundedTypeExpr, IntrinsicTypeExpr, CompilerHint, UseDecl,
+    BoundedTypeExpr, IntrinsicTypeExpr, StableAddressFunctionTypeExpr,
+    CompilerHint, UseDecl,
     EnumVariantDecl, EnumDecl, SumVariantDecl,
     SumDecl, StructField, StructDecl, TraitMethodDecl, TraitDecl,
     SatisfyDecl, ForeignDecl, FnDecl, Param, SelfParam, TestDecl, Stmt,
@@ -98,9 +99,6 @@ class Parser(ExprParser, StmtParser):
         mengharapkan tipe (setelah ':', '->', dst), tidak pernah dari
         posisi ekspresi biasa.
         """
-        if self._check(Operator(OperatorKind.TICK)):
-            return self._parse_bounded_type_expr()
-
         # self! — type-level intrinsic (intrinsics.md, trait.md §2)
         # Harus dicek SEBELUM named path, karena `self` adalah Keyword, bukan IDENT.
         if self._check(Keyword(KeywordKind.SELF)):
@@ -109,16 +107,25 @@ class Parser(ExprParser, StmtParser):
                 self._advance()
                 self._advance()
                 return IntrinsicTypeExpr(name="self")
-        if self._check(Keyword(KeywordKind.SATISFY)):
-            return self._parse_satisfy_type_expr()
-        if self._check(Delimiter(DelimiterKind.LBRACKET)):
-            return self._parse_array_or_slice_type_expr()
+
         if self._check(Operator(OperatorKind.STAR)):
             return self._parse_pointer_type_expr()
         if self._check(Operator(OperatorKind.AMPERSAND)):
             return self._parse_reference_type_expr()
+        if self._check(Operator(OperatorKind.TICK)):
+            return self._parse_bounded_type_expr()
+
+        if self._check(Keyword(KeywordKind.SATISFY)):
+            return self._parse_satisfy_type_expr()
+
+        if self._check(Delimiter(DelimiterKind.LBRACKET)):
+            return self._parse_array_or_slice_type_expr()
         if self._check(Delimiter(DelimiterKind.LPAREN)):
             return self._parse_function_type_expr()
+
+        if self._check(Keyword(KeywordKind.FOREIGN)):
+            return self._parse_stable_address_function_type_expr()
+
         return self._parse_named_or_generic_type_expr()
 
     def _parse_satisfy_type_expr(self) -> SatisfyTypeExpr:
@@ -197,6 +204,24 @@ class Parser(ExprParser, StmtParser):
         return_type = self._parse_type_expr()
         return FunctionTypeExpr(params=params, return_type=return_type)
 
+    def _parse_stable_address_function_type_expr(self) -> StableAddressFunctionTypeExpr:
+        """
+        foreign (T1, T2) -> R  — Stable Address Function type
+        (function.md, ffi.md §3)
+        """
+        self._expect(Keyword(KeywordKind.FOREIGN))
+        self._expect(Delimiter(DelimiterKind.LPAREN))
+        params: list[TypeExpr] = []
+        if not self._check(Delimiter(DelimiterKind.RPAREN)):
+            params.append(self._parse_type_expr())
+            while self._check(Delimiter(DelimiterKind.COMMA)):
+                self._advance()
+                params.append(self._parse_type_expr())
+        self._expect(Delimiter(DelimiterKind.RPAREN))
+        self._expect(Delimiter(DelimiterKind.ARROW))
+        return_type = self._parse_type_expr()
+        return StableAddressFunctionTypeExpr(params=params, return_type=return_type)
+
     def _parse_named_or_generic_type_expr(self):
         base = self._parse_named_type_path()
         if self._check(Operator(OperatorKind.LT)):
@@ -273,16 +298,8 @@ class Parser(ExprParser, StmtParser):
             )
 
         # Parse function signature using existing logic.
-        # _parse_fn_decl handles both body '{...}' and no-body ';' cases.
-        # For foreign fn, we expect ';' (trait-method-style, no body).
-        fn = self._parse_fn_decl([])
-
-        # Verify no body was parsed (should end with ';', not '{').
-        if fn.body:
-            raise ParseError(
-                f"foreign fn must not have a body — expected ';' after signature"
-            )
-
+        # Foreign = deklarasi murni → signature + ';' saja, tidak boleh ada body.
+        fn = self._parse_fn_decl([], allow_body=False)
         return ForeignDecl(lib_name=lib_tok.text, fn=fn)
 
     ### Program entry point
@@ -311,8 +328,13 @@ class Parser(ExprParser, StmtParser):
             return self._parse_foreign_decl()
 
         # internal/inline/comp/unsafe fn -- modifier lookahead
-        if tok.kind in (Keyword(KeywordKind.INTERNAL), Keyword(KeywordKind.INLINE), Keyword(KeywordKind.COMP),
-                        Keyword(KeywordKind.UNSAFE), Keyword(KeywordKind.FN)):
+        if tok.kind in (
+            Keyword(KeywordKind.INTERNAL),
+            Keyword(KeywordKind.INLINE),
+            Keyword(KeywordKind.COMP),
+            Keyword(KeywordKind.UNSAFE),
+            Keyword(KeywordKind.FN),
+        ):
             return self._parse_fn_decl(hints)
 
         raise ParseError(f"Unexpected top-level token {describe_token_kind(tok.kind)} at {tok.span}")
@@ -596,11 +618,17 @@ class Parser(ExprParser, StmtParser):
 
     ### fn -- dengan modifier order Visibility -> Tag -> Treat (module_system.md)
 
-    def _parse_fn_decl(self, hints: list[CompilerHint], struct_name: Optional[str] = None) -> FnDecl:
+    def _parse_fn_decl(
+        self,
+        hints       : list[CompilerHint],
+        struct_name : Optional[str] = None,
+        allow_body  : bool = True,
+    ) -> FnDecl:
         is_internal = False
         is_inline = False
         is_comp = False
         is_unsafe = False
+
         if self._check(Keyword(KeywordKind.INTERNAL)):
             self._advance()
             is_internal = True
@@ -638,10 +666,12 @@ class Parser(ExprParser, StmtParser):
             return_type = self._parse_type_expr()
 
         body: list[Stmt] = []
-        if self._check(Delimiter(DelimiterKind.LBRACE)):
+        if allow_body and self._check(Delimiter(DelimiterKind.LBRACE)):
             body = self.parse_block()
         else:
-            self._expect(Delimiter(DelimiterKind.SEMICOLON))  # trait method signature tanpa body
+            # Signature-only (trait method, foreign fn, dll.)
+            # Wajib diakhiri ';' — apapun selain itu error.
+            self._expect(Delimiter(DelimiterKind.SEMICOLON))
 
         return FnDecl(
             name=name_tok.text, params=params, return_type=return_type, body=body,

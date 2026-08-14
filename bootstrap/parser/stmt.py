@@ -413,11 +413,6 @@ class StmtParser:
             self._expect(Delimiter(DelimiterKind.RPAREN))
             return self._maybe_range_or_at(inner)
 
-        # --- LEADING-DOT VARIANT PATTERN: .Circle(r), .Point, .{ ... }
-        # INI PERBAIKAN UTAMA -- versi lama memaksa "UnionName.Variant"
-        # via self._expect(Literal(LiteralKind.IDENT)) SEBELUM titik. Sekarang
-        # pattern dimulai LANGSUNG dari DOT, konsisten dengan
-        # pattern_matching.md & expr.py leading-dot handling.
         if tok.kind == Delimiter(DelimiterKind.DOT):
             return self._parse_variant_or_struct_pattern()
 

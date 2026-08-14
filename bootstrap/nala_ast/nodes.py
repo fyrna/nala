@@ -75,6 +75,17 @@ class FunctionTypeExpr(TypeExpr):
 
 
 @dataclass
+class StableAddressFunctionTypeExpr(TypeExpr):
+    """
+    Tipe slot yang membutuhkan fungsi dengan stable address.
+    BUKAN tipe dari named fn.
+    (function.md, ffi.md §3)
+    """
+    params: list[TypeExpr]
+    return_type: TypeExpr
+
+
+@dataclass
 class IntrinsicTypeExpr(TypeExpr):
     """
     Type-level intrinsic: self!, typeof!(expr), sizeof!(T), dst.
