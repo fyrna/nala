@@ -132,22 +132,9 @@ class Lexer:
         # kalau perlu nama polosnya.
         return Token(Literal(LiteralKind.BACKTICK_IDENT), text, Span(start_pos, self.pos, start_line, start_col))
 
-    # Suffix set -- HANYA berlaku untuk literal DESIMAL/BINARY, TIDAK
-    # PERNAH untuk HEX. Alasan: f32/f64 (satu-satunya suffix float)
-    # collision langsung dengan karakter hex digit ('f'/'F' valid hex
-    # digit) -- 0xAf32 secara greedy-scan SELALU dibaca habis sebagai
-    # hex digits "Af32" (semuanya valid 0-9a-fA-F), TIDAK PERNAH sampai
-    # ke titik "coba cocokkan suffix" sama sekali. Ini bukan
-    # keterbatasan yang perlu pesan error khusus -- hex literal secara
-    # semantik SELALU integer (tidak ada hex-float di Nala), jadi
-    # "hex + suffix float" tidak pernah masuk akal ditulis programmer;
-    # dan suffix integer (u32, i64, dst) SEBENARNYA tidak collision
-    # dengan hex digit sama sekali ('u'/'i'/'s' bukan hex digit) --
-    # TAPI supaya aturannya SATU aturan simpel yang konsisten (bukan
-    # "suffix integer boleh di hex, suffix float tidak boleh"), hex
-    # literal SAMA SEKALI tidak mencoba scan suffix apa pun. Programmer
-    # yang butuh hex dengan tipe spesifik pakai context (let x: u32 =
-    # 0xFF;), persis seperti sebelum revisi suffix ada.
+    # Integer suffix boleh menempel di decimal, binary, maupun hex.
+    # Float suffix hanya untuk decimal/float literal — di hex, huruf
+    # 'f'/'F' sudah otomatis dimakan sebagai digit hex oleh loop greedy.
     _INT_SUFFIXES = ("isize", "usize", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64")
     _FLOAT_SUFFIXES = ("f32", "f64")
 
@@ -204,7 +191,8 @@ class Lexer:
         
             while not self._is_eof() and (self._current() in "0123456789abcdefABCDEF_"):
                 self._advance()
-                
+
+            self._try_lex_suffix(self._INT_SUFFIXES)
             text = self.source[start_pos:self.pos]
             return Token(Literal(LiteralKind.INT_LITERAL), text, Span(start_pos, self.pos, start_line, start_col))
 

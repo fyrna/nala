@@ -13,10 +13,9 @@ Precedence (rendah ke tinggi), mengikuti language.md:
   or
   and
   == != > < >= <=
-  | ^                  (bitwise or/xor)
-  &                    (bitwise and -- overlap simbol dgn reference,
-                         context menentukan: prefix = reference/addr-of,
-                         infix = bitwise and)
+  |  (bitwise or)
+  ^  (bitwise xor)
+  &  (bitwise and -- overlap simbol dgn reference, context menentukan: prefix = reference/addr-of, infix = bitwise and)
   << >>
   + -
   * / %
@@ -55,31 +54,17 @@ _FLOAT_LITERAL_SUFFIXES = ("f32", "f64")
 
 
 def _split_literal_suffix(raw_text: str, allowed_suffixes: tuple[str, ...]) -> tuple[str, "str | None"]:
-    """
-    Pisahkan `raw_text` (token INT_LITERAL/FLOAT_LITERAL APA ADANYA
-    dari lexer, mis. "100u32", "0xFF", "3.0f32") jadi (bagian_angka,
-    suffix_atau_None).
-
-    KRITIS: hex/binary literal ("0x.../0X.../0b.../0B...") TIDAK
-    PERNAH dicoba displit sama sekali -- digit hex (0-9a-fA-F) BISA
-    secara TEKSTUAL cocok dengan suffix string (mis. "0xf64" adalah
-    hex value valid 0xF64 = 3940, BUKAN "0x" + suffix "f64" -- lexer
-    SUDAH benar tidak menganggap ini punya suffix, lihat catatan
-    lexer/lexer.py, tapi endswith() murni di sini TIDAK tahu konteks
-    itu kalau tidak dicegat eksplisit). Guard "0x"/"0b" prefix di awal
-    fungsi ini WAJIB ada, bukan sekadar optimasi -- tanpa ini,
-    "0xf64" akan salah displit jadi ("0x", "f64") dan NILAI LITERAL
-    JADI SALAH TOTAL (0x kosong, bukan 0xf64).
-
-    Lexer SUDAH menjamin (untuk literal desimal/binary NON-hex): kalau
-    ada suffix, ia PERSIS salah satu dari `allowed_suffixes` dan
-    menempel LANGSUNG di akhir tanpa karakter lain di antaranya (lihat
-    lexer/lexer.py:_try_lex_suffix).
-    """
-    if raw_text[:2].lower() == "0x":
-        return raw_text, None
+    # Hex / binary tetap boleh punya type suffix (0xABCu32, 0b1010u8).
+    # Hanya tolak split kalau karakter yang akan dianggap suffix
+    # ternyata adalah digit hex/binary yang sah (jebakan klasik 0xf64).
     for suffix in allowed_suffixes:
         if raw_text.endswith(suffix) and len(raw_text) > len(suffix):
+            prefix = raw_text[: -len(suffix)]
+            # Jaga ambiguitas gaya 0xf64: kalau "suffix"-nya terdiri
+            # dari digit hex dan prefix-nya literal hex, anggap seluruh
+            # string sebagai nilai, jangan dipisah.
+            if prefix[:2].lower() in ("0x", "0b") and all(c in "0123456789abcdefABCDEF" for c in suffix):
+                continue
             return raw_text[: -len(suffix)], suffix
     return raw_text, None
 
@@ -151,17 +136,25 @@ class ExprParser:
         return left
 
     def _parse_comparison(self) -> Expr:
-        left = self._parse_bitwise_or_xor()
+        left = self._parse_bitwise_or()
         while self._check(Operator(OperatorKind.GT)) or self._check(Operator(OperatorKind.LT)) or \
               self._check(Operator(OperatorKind.GT_EQ)) or self._check(Operator(OperatorKind.LT_EQ)):
             op_tok = self._advance()
-            right = self._parse_bitwise_or_xor()
+            right = self._parse_bitwise_or()
             left = BinaryExpr(op=op_tok.text, left=left, right=right)
         return left
 
-    def _parse_bitwise_or_xor(self) -> Expr:
+    def _parse_bitwise_or(self) -> Expr:
+        left = self._parse_bitwise_xor()
+        while self._check(Operator(OperatorKind.PIPE)):
+            self._advance()
+            right = self.parse_bitwise_xor()
+            left = BinaryExpr(op="|", left=left, right=right)
+        return left
+
+    def _parse_bitwise_xor(self) -> Expr:
         left = self._parse_bitwise_and()
-        while self._check(Operator(OperatorKind.PIPE)) or self._check(Operator(OperatorKind.CARET)):
+        while self._check(Operator(OperatorKind.CARET)):
             op_tok = self._advance()
             right = self._parse_bitwise_and()
             left = BinaryExpr(op=op_tok.text, left=left, right=right)
@@ -251,7 +244,7 @@ class ExprParser:
                 # foo(args) -- hanya valid kalau expr adalah Ident (nama fn)
                 args = self._parse_call_args()
                 if isinstance(expr, Ident):
-                    expr = CallExpr(callee=expr.name, args=args)
+                    expr = CallExpr(callee=expr, args=args)
                 else:
                     # Bentuk lain (mis. hasil field access dipanggil) --
                     # parser tetap "stupid", biarkan checker yang putuskan
@@ -403,8 +396,6 @@ class ExprParser:
 
     def _parse_leading_dot(self) -> Expr:
         """
-        Titik yang GAGAL TOTAL di versi lama. Bentuk yang mungkin
-        (sudah dikonfirmasi, hanya 3 kemungkinan):
           .{ ... }        -> LeadingDotStructLiteral
           .Variant        -> LeadingDotAccess
           .Variant(args)  -> LeadingDotCall
@@ -529,9 +520,10 @@ class ExprParser:
         if self._check(Delimiter(DelimiterKind.LBRACE)):
             return self._parse_block_via_stmt_parser()  # type: ignore[attr-defined]
         if self._check(Keyword(KeywordKind.IF)):
-            # else if ... -- nested if-as-statement, HANYA valid untuk
-            # pemakaian if sebagai statement (checker yang menolak ini
-            # kalau if ini ternyata dipakai sebagai value/ekspresi).
-            nested = self._parse_if_as_stmt_for_nested()  # type: ignore[attr-defined]
-            return [nested]
+            # else-if berantai: simpan IfExpr itu sendiri supaya
+            # else_branch berisi IfExpr (bentuk ekspresi), bukan
+            # list[ExprStmt]. Caller yang memakai if sebagai statement
+            # tetap dapat tree yang valid; checker yang memutuskan
+            # apakah bentuk ini boleh dipakai sebagai value.
+            return self._parse_if_expr()
         return self.parse_expr()

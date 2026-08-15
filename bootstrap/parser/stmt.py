@@ -117,8 +117,6 @@ class StmtParser:
             return self._parse_continue_stmt()
         if tok.kind == Keyword(KeywordKind.DEFER):
             return self._parse_defer_stmt()
-        # `fallthrough` DIHAPUS TOTAL dari bahasa -- cabang dispatch
-        # untuk ini SENGAJA tidak ada lagi (lihat lexer/token.py).
 
         # Fallback: expression statement, atau assignment (target diketahui
         # setelah parse expr pertama, baru cek apakah diikuti operator assign)
@@ -452,9 +450,34 @@ class StmtParser:
         raise ParseError(f"Unexpected token in pattern: {describe_token_kind(tok.kind)} at {tok.span}")
 
     def _parse_pattern_literal_expr(self) -> Expr:
-        """Parse satu literal sebagai Expr (dipakai LiteralPattern/RangePattern batas)."""
-        # Delegasikan ke expr parser -- literal adalah subset primary expr.
-        return self.parse_expr()  # type: ignore[misc]
+        """Parse *tepat satu* token literal sebagai Expr.
+        JANGAN panggil parse_expr() — itu akan menghabiskan operator
+        '|' yang mengikuti dan mengubah OR-pattern menjadi BinaryExpr.
+        """
+        tok = self._current()
+        if tok.kind == Literal(LiteralKind.INT_LITERAL):
+            self._advance()
+            from parser.expr import _split_literal_suffix, _INT_LITERAL_SUFFIXES
+            numeric, suffix = _split_literal_suffix(tok.text, _INT_LITERAL_SUFFIXES)
+            return IntLiteral(value=numeric, suffix=suffix)
+        if tok.kind == Literal(LiteralKind.FLOAT_LITERAL):
+            self._advance()
+            from parser.expr import _split_literal_suffix, _FLOAT_LITERAL_SUFFIXES
+            numeric, suffix = _split_literal_suffix(tok.text, _FLOAT_LITERAL_SUFFIXES)
+            return FloatLiteral(value=numeric, suffix=suffix)
+        if tok.kind == Literal(LiteralKind.STRING_LITERAL):
+            self._advance()
+            return StringLiteral(value=tok.text)
+        if tok.kind == Literal(LiteralKind.BYTE_LITERAL):
+            self._advance()
+            return ByteLiteral(value=tok.text)
+        if tok.kind == Keyword(KeywordKind.TRUE):
+            self._advance()
+            return BoolLiteral(value=True)
+        if tok.kind == Keyword(KeywordKind.FALSE):
+            self._advance()
+            return BoolLiteral(value=False)
+        raise ParseError(f"Diharapkan literal di dalam pattern, dapat {describe_token_kind(tok.kind)} di {tok.span}")
 
     def _maybe_range_or_at(self, pattern: Pattern) -> Pattern:
         """
