@@ -16,6 +16,7 @@ from nala_ast.nodes import (
     MatchArm, Pattern, WildcardPattern, BindPattern, LiteralPattern,
     RangePattern, OrPattern, VariantPattern, StructPattern,
     AtBindPattern, Expr, Ident, IfExpr,
+    IntLiteral, FloatLiteral, StringLiteral, ByteLiteral, BoolLiteral,
 )
 
 

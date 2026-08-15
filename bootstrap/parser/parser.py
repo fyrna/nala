@@ -569,10 +569,24 @@ class Parser(ExprParser, StmtParser):
         methods: list[TraitMethodDecl] = []
         associated_types: list[str] = []
         while not self._check(Delimiter(DelimiterKind.RBRACE)):
-            if self._check(Keyword(KeywordKind.TYPE)):
+            if self._check(Keyword(KeywordKind.CONST)):
                 self._advance()
                 assoc_name = self._expect(Literal(LiteralKind.IDENT)).text
+                self._expect(Delimiter(DelimiterKind.COLON))
+                # Harus berupa keyword `type` (type-as-value)
+                if not self._check(Keyword(KeywordKind.TYPE)):
+                    raise ParseError(
+                        f"Associated type di trait harus berbentuk "
+                        f"'const {assoc_name} : type', dapat "
+                        f"{describe_token_kind(self._current().kind)} "
+                        f"di {self._current().span}"
+                    )
+                # Wajib diikuti keyword `type`
+                self._expect(Keyword(KeywordKind.TYPE))
                 associated_types.append(assoc_name)
+                # Trailing comma opsional, sama seperti field struct
+                if self._check(Delimiter(DelimiterKind.COMMA)):
+                    self._advance()
             else:
                 methods.append(self._parse_trait_method())
         self._expect(Delimiter(DelimiterKind.RBRACE))
@@ -605,12 +619,14 @@ class Parser(ExprParser, StmtParser):
         associated_types: dict[str, TypeExpr] = {}
 
         while not self._check(Delimiter(DelimiterKind.RBRACE)):
-            if self._check(Keyword(KeywordKind.TYPE)):
+            if self._check(Keyword(KeywordKind.CONST)):
                 self._advance()
                 assoc_name = self._expect(Literal(LiteralKind.IDENT)).text
                 self._expect(Operator(OperatorKind.EQ))
                 assoc_type = self._parse_type_expr()
                 associated_types[assoc_name] = assoc_type
+                if self._check(Delimiter(DelimiterKind.COMMA)):
+                    self._advance()
             else:
                 methods.append(self._parse_fn_decl([], struct_name=type_name.path[-1]))
         self._expect(Delimiter(DelimiterKind.RBRACE))

@@ -148,7 +148,7 @@ class ExprParser:
         left = self._parse_bitwise_xor()
         while self._check(Operator(OperatorKind.PIPE)):
             self._advance()
-            right = self.parse_bitwise_xor()
+            right = self._parse_bitwise_xor()
             left = BinaryExpr(op="|", left=left, right=right)
         return left
 
@@ -307,6 +307,8 @@ class ExprParser:
             args.append(self.parse_expr())
             while self._check(Delimiter(DelimiterKind.COMMA)):
                 self._advance()
+                if self._check(Delimiter(DelimiterKind.RPAREN)):
+                    break  # trailing comma
                 args.append(self.parse_expr())
         self._expect(Delimiter(DelimiterKind.RPAREN))
         return args
