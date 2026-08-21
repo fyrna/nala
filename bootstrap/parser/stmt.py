@@ -6,17 +6,57 @@ from __future__ import annotations
 from typing import Optional
 
 from lexer.token import (
-    Token, TokenKind, Keyword, Operator, Delimiter, Literal, Special,
-    KeywordKind, OperatorKind, DelimiterKind, LiteralKind, SpecialKind,
+    Token,
+    TokenKind,
+
+    Keyword,
+    Operator,
+    Delimiter,
+    Literal,
+    Special,
+
+    KeywordKind,
+    OperatorKind,
+    DelimiterKind,
+    LiteralKind,
+    SpecialKind,
+
     describe_token_kind,
 )
 from nala_ast.nodes import (
-    Stmt, ReturnStmt, LoopStmt, ForStmt, ForInStmt, AssignStmt,
-    ExprStmt, ContinueStmt, BreakStmt, DeferStmt, LetStmt, MatchStmt,
-    MatchArm, Pattern, WildcardPattern, BindPattern, LiteralPattern,
-    RangePattern, OrPattern, VariantPattern, StructPattern,
-    AtBindPattern, Expr, Ident, IfExpr,
-    IntLiteral, FloatLiteral, StringLiteral, ByteLiteral, BoolLiteral,
+    Stmt,
+    ReturnStmt,
+    LoopStmt,
+    ForStmt,
+    ForInStmt,
+    AssignStmt,
+    ExprStmt,
+    ContinueStmt,
+    BreakStmt,
+    DeferStmt,
+    LetStmt,
+    MatchStmt,
+    MatchArm,
+
+    Pattern,
+    WildcardPattern,
+    BindPattern,
+    LiteralPattern,
+    RangePattern,
+    OrPattern,
+    VariantPattern,
+    StructPattern,
+    AtBindPattern,
+
+    Expr,
+    Ident,
+    IfExpr,
+
+    IntLiteral,
+    FloatLiteral,
+    StringLiteral,
+    ByteLiteral,
+    BoolLiteral,
 )
 
 
@@ -334,7 +374,7 @@ class StmtParser:
         return DeferStmt(body=body)
 
     # ========================================================================
-    # match / comp match -- TITIK PERBAIKAN UTAMA dari versi lama
+    # match / comp match
     # ========================================================================
 
     def _parse_match_stmt(self, is_comp: bool) -> MatchStmt:
@@ -547,15 +587,7 @@ class StmtParser:
                     self._advance()
                     bindings.append(self._parse_pattern())
             self._expect(Delimiter(DelimiterKind.RPAREN))
-        variant_pattern = VariantPattern(variant_name=name_tok.text, bindings=bindings)
-        return self._maybe_at_bind_wrap(variant_pattern)
-
-    def _maybe_at_bind_wrap(self, pattern: Pattern) -> Pattern:
-        """Untuk kasus seperti .Circle(r @ 1..10) -- '@' di DALAM bindings
-        sudah ditangani _parse_pattern_atom rekursif; ini untuk '@' yang
-        menempel LANGSUNG setelah keseluruhan variant pattern (jarang,
-        tapi dijaga konsisten)."""
-        return pattern
+        return VariantPattern(variant_name=name_tok.text, bindings=bindings)
 
     def _parse_struct_pattern(self) -> StructPattern:
         self._expect(Delimiter(DelimiterKind.LBRACE))

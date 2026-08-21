@@ -19,24 +19,57 @@ Precedence (rendah ke tinggi), mengikuti language.md:
   << >>
   + -
   * / %
-  unary: - ! ~ & *     (prefix)
+  unary: - ! ~ &       (prefix; dereference adalah postfix p.*)
   postfix: call, index, field access, dotted access
 """
 from __future__ import annotations
 from typing import Optional
 
 from lexer.token import (
-    Token, TokenKind, Keyword, Operator, Delimiter, Literal, Special,
-    KeywordKind, OperatorKind, DelimiterKind, LiteralKind, SpecialKind,
+    Token,
+    TokenKind,
+
+    Keyword,
+    Operator,
+    Delimiter,
+    Literal,
+    Special,
+
+    KeywordKind,
+    OperatorKind,
+    DelimiterKind,
+    LiteralKind,
+    SpecialKind,
+
     describe_token_kind,
 )
 
 from nala_ast.nodes import (
-    Expr, BinaryExpr, UnaryExpr, CallExpr, MethodCall, IntrinsicCall,
-    Ident, StringLiteral, IntLiteral, FloatLiteral, BoolLiteral, ByteLiteral, UnitLiteral,
-    FieldAccess, ArrayIndex, IfExpr, StructLiteral, FieldInit,
-    DottedAccess, DottedCall, LeadingDotAccess, LeadingDotCall,
-    LeadingDotStructLiteral, ArrayLiteral, TryExpr,
+    Expr,
+    BinaryExpr,
+    UnaryExpr,
+    CallExpr,
+
+    MethodCall,
+    IntrinsicCall,
+    Ident,
+    StringLiteral,
+    IntLiteral,
+    FloatLiteral,
+    BoolLiteral,
+    ByteLiteral,
+    UnitLiteral,
+    ArrayIndex,
+    IfExpr,
+    StructLiteral,
+    FieldInit,
+    DottedAccess,
+    DottedCall,
+    LeadingDotAccess,
+    LeadingDotCall,
+    LeadingDotStructLiteral,
+    ArrayLiteral,
+    TryExpr,
 )
 
 
@@ -329,9 +362,7 @@ class ExprParser:
                 self._advance()  # comp
                 return self._parse_match_expr(is_comp=True)
 
-        # --- LEADING-DOT: token PERTAMA adalah DOT, tanpa base sama
-        # sekali. Ini yang GAGAL TOTAL di versi lama -- _parse_primary
-        # lama tidak punya cabang ini sama sekali. ---
+        # Leading-dot: token pertama DOT, tanpa base (beda dari DottedAccess).
         if tok.kind == Delimiter(DelimiterKind.DOT):
             return self._parse_leading_dot()
 

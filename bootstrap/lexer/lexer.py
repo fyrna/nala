@@ -6,9 +6,22 @@ from __future__ import annotations
 from typing import Optional
 
 from lexer.token import (
-    Token, TokenKind, Span,
-    Keyword, Operator, Delimiter, Literal, Special,
-    KeywordKind, OperatorKind, DelimiterKind, LiteralKind, SpecialKind,
+    Token,
+    TokenKind,
+    Span,
+
+    Keyword,
+    Operator,
+    Delimiter,
+    Literal,
+    Special,
+
+    KeywordKind,
+    OperatorKind,
+    DelimiterKind,
+    LiteralKind,
+    SpecialKind,
+
     get_keyword_kind,
 )
 

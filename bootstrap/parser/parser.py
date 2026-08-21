@@ -7,19 +7,59 @@ from typing import Optional
 
 from lexer.lexer import Lexer
 from lexer.token import (
-    Token, TokenKind, Keyword, Operator, Delimiter, Literal, Special,
-    KeywordKind, OperatorKind, DelimiterKind, LiteralKind, SpecialKind,
+    Token,
+    TokenKind,
+
+    Keyword,
+    Operator,
+    Delimiter,
+    Literal,
+    Special,
+
+    KeywordKind,
+    OperatorKind,
+    DelimiterKind,
+    LiteralKind,
+    SpecialKind,
+
     describe_token_kind,
 )
 
 from nala_ast.nodes import (
-    TypeExpr, NamedTypeExpr, GenericTypeExpr, ArrayTypeExpr, SliceTypeExpr,
-    PointerTypeExpr, ReferenceTypeExpr, SatisfyTypeExpr, FunctionTypeExpr,
-    BoundedTypeExpr, IntrinsicTypeExpr, StableAddressFunctionTypeExpr,
-    CompilerHint, UseDecl,
-    EnumVariantDecl, EnumDecl, SumVariantDecl,
-    SumDecl, StructField, StructDecl, TraitMethodDecl, TraitDecl,
-    SatisfyDecl, ForeignDecl, FnDecl, Param, SelfParam, TypeParam, ConstDecl, TestDecl, Stmt,
+    TypeExpr,
+    NamedTypeExpr,
+    GenericTypeExpr,
+    ArrayTypeExpr,
+    SliceTypeExpr,
+    PointerTypeExpr,
+    ReferenceTypeExpr,
+    SatisfyTypeExpr,
+    FunctionTypeExpr,
+    BoundedTypeExpr,
+    IntrinsicTypeExpr,
+    StableAddressFunctionTypeExpr,
+
+    CompilerHint,
+    UseDecl,
+    EnumVariantDecl,
+    EnumDecl,
+    SumVariantDecl,
+    SumDecl,
+    StructField,
+    StructDecl,
+    TraitMethodDecl,
+    TraitDecl,
+    SatisfyDecl,
+    ForeignDecl,
+    FnDecl,
+    ConstDecl,
+    TestDecl,
+
+    Param,
+    SelfParam,
+    TypeParam,
+
+    Stmt,
 )
 
 from parser.expr import ExprParser, ParseError as ExprParseError
@@ -414,7 +454,7 @@ class Parser(ExprParser, StmtParser):
     def _parse_const_decl(self, hints: list[CompilerHint]):
         self._expect(Keyword(KeywordKind.CONST))
         name_tok = self._expect(Literal(LiteralKind.IDENT))
-        type_params: list[str] = []
+        type_params: list = []
         if self._check(Operator(OperatorKind.LT)):
             type_params = self._parse_type_param_list()
         self._expect(Operator(OperatorKind.EQ))
@@ -461,7 +501,7 @@ class Parser(ExprParser, StmtParser):
 
     ### struct
 
-    def _parse_struct_body(self, name: str, type_params: list[str], hints: list[CompilerHint]) -> StructDecl:
+    def _parse_struct_body(self, name: str, type_params: list, hints: list[CompilerHint]) -> StructDecl:
         self._expect(Keyword(KeywordKind.STRUCT))
         self._expect(Delimiter(DelimiterKind.LBRACE))
         fields: list[StructField] = []
@@ -495,7 +535,7 @@ class Parser(ExprParser, StmtParser):
 
     ### sum type
 
-    def _parse_sum_body(self, name: str, type_params: list[str], hints: list[CompilerHint]) -> SumDecl:
+    def _parse_sum_body(self, name: str, type_params: list, hints: list[CompilerHint]) -> SumDecl:
         """
         Parse badan `sum { ... }`
         """
@@ -781,9 +821,8 @@ def parse(source: str) -> list:
 
 def _format_ast(node, indent: int = 0) -> str:
     """
-    Cetak satu node AST (dataclass APAPUN dari nala_ast.nodes, atau
-    list/tuple berisi node-node itu, atau tuple mentah dari
-    _parse_const_decl untuk const biasa) sebagai tree ber-indentasi.
+    Cetak satu node AST (dataclass dari nala_ast.nodes, atau list
+    berisi node-node itu) sebagai tree ber-indentasi.
 
     Sengaja TIDAK memakai repr() dataclass mentah -- untuk node
     bersarang dalam (mis. FnDecl dengan body berisi banyak Stmt, tiap
@@ -823,8 +862,7 @@ def _format_ast(node, indent: int = 0) -> str:
                 lines.append(f"{pad}  {f.name}: {value!r}")
         return "\n".join(lines)
 
-    # Fallback -- tuple mentah dari _parse_const_decl (const biasa,
-    # bukan struct/sum/enum/trait), atau nilai primitif apa pun.
+    # Fallback nilai non-dataclass (primitif, dll).
     return f"{pad}{node!r}"
 
 

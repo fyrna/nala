@@ -137,7 +137,7 @@ class ConstDecl:
     name: str
     value: "Expr"
     type: "TypeExpr | None" = None  # anotasi opsional
-    type_params: list[str] = field(default_factory=list)
+    type_params: list["TypeParam"] = field(default_factory=list)
     hints: list["CompilerHint"] = field(default_factory=list)
 
 
@@ -193,7 +193,7 @@ class SumDecl:
     name: str
     variants: list[SumVariantDecl] = field(default_factory=list)
     methods: list["FnDecl"] = field(default_factory=list)
-    type_params: list = field(default_factory=list)
+    type_params: list["TypeParam"] = field(default_factory=list)
     hints: list[CompilerHint] = field(default_factory=list)
 
 
@@ -209,7 +209,7 @@ class StructDecl:
     name: str
     fields: list[StructField] = field(default_factory=list)
     methods: list["FnDecl"] = field(default_factory=list)
-    type_params: list = field(default_factory=list)
+    type_params: list["TypeParam"] = field(default_factory=list)
     hints: list[CompilerHint] = field(default_factory=list)
 
 
@@ -282,12 +282,6 @@ class ByteLiteral(Expr):
 
 
 @dataclass
-class FieldAccess(Expr):
-    obj: Expr
-    field: str
-
-
-@dataclass
 class BinaryExpr(Expr):
     op: str
     left: Expr
@@ -302,7 +296,9 @@ class UnaryExpr(Expr):
 
 @dataclass
 class CallExpr(Expr):
-    callee: str
+    """foo(args) — callee biasanya Ident; bentuk lain (mis. hasil grouping)
+    tetap Expr (parser be stupid, checker yang validasi)."""
+    callee: Expr
     args: list[Expr] = field(default_factory=list)
 
 
@@ -347,13 +343,6 @@ class FieldInit:
 
 
 @dataclass
-class SumLiteral(Expr):
-    sum_name: str
-    variant_name: str
-    payload: list[Expr] = field(default_factory=list)  # tuple/list, bukan Optional tunggal
-
-
-@dataclass
 class ArrayLiteral(Expr):
     size: "int | None"  # None = [_]T (infer dari elements)
     element_type: TypeExpr
@@ -364,12 +353,6 @@ class ArrayLiteral(Expr):
 class ArrayIndex(Expr):
     obj: Expr
     index: Expr
-
-
-@dataclass
-class EnumVariantAccess(Expr):
-    enum_name: str
-    variant_name: str
 
 
 # --- Dotted access dengan base EKSPLISIT (mis. math.abs, std.mem.copy) ---
@@ -397,9 +380,9 @@ class DottedCall(Expr):
 
 @dataclass
 class LeadingDotAccess(Expr):
-    """.Active, .{} (tanpa call) -- enum variant tanpa payload, atau
-    placeholder sebelum tau ini struct literal/enum/assoc fn."""
-    name: str  # nama setelah titik: "Active", atau "" untuk .{}
+    """.Active — variant/assoc tanpa payload.
+    (Bentuk `.{}` adalah LeadingDotStructLiteral, bukan name=="".)"""
+    name: str
 
 
 @dataclass
@@ -626,7 +609,7 @@ class ForInStmt(Stmt):
     var_name: str
     iterable: Expr
     body: list["Stmt"] = field(default_factory=list)
-    is_inline: bool = False  # `inline for`
+    is_inline: bool = False  # reserved: `inline for` (parser belum set)
 
 
 @dataclass

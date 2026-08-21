@@ -134,7 +134,6 @@ class LiteralKind(Enum):
     FLOAT_LITERAL = auto()
     STRING_LITERAL = auto()
     BYTE_LITERAL = auto()
-    UNIT_LITERAL = auto()
 
 
 class SpecialKind(Enum):
