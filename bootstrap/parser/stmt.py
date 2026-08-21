@@ -338,12 +338,22 @@ class StmtParser:
     # ========================================================================
 
     def _parse_match_stmt(self, is_comp: bool) -> MatchStmt:
+        """
+        match expr {
+          pattern [if guard] => { block },
+          pattern [if guard] => expr,
+        }
+        Koma antar arm opsional/trailing; memisahkan arm.
+        """
         self._expect(Keyword(KeywordKind.MATCH))
         expr = self.parse_expr_no_struct_literal()
         self._expect(Delimiter(DelimiterKind.LBRACE))
         arms: list[MatchArm] = []
         while not self._check(Delimiter(DelimiterKind.RBRACE)):
             arms.append(self._parse_match_arm())
+            # koma antar arm (dan trailing comma) opsional
+            if self._check(Delimiter(DelimiterKind.COMMA)):
+                self._advance()
         self._expect(Delimiter(DelimiterKind.RBRACE))
         return MatchStmt(expr=expr, arms=arms, is_comp=is_comp)
 
@@ -372,16 +382,35 @@ class StmtParser:
             self._advance()
             guard = self.parse_expr()
         self._expect(Delimiter(DelimiterKind.FAT_ARROW))
+        body_is_expr = False
         if self._check(Delimiter(DelimiterKind.LBRACE)):
             body = self.parse_block()
         elif self._current().kind in _STMT_STARTER_KEYWORDS:
             body = [self.parse_stmt()]
         else:
+            # => expr — nilai arm; BUKAN implicit return di match-statement
             expr = self.parse_expr()
             body = [ExprStmt(expr=expr)]
+            body_is_expr = True
             if self._check(Delimiter(DelimiterKind.SEMICOLON)):
                 self._advance()
-        return MatchArm(pattern=pattern, body=body, guard=guard)
+        return MatchArm(
+            pattern=pattern, body=body, guard=guard, body_is_expr=body_is_expr
+        )
+
+    def _parse_match_expr(self, is_comp: bool = False) -> "MatchExpr":
+        """match di expression position (ret match x { … })."""
+        from nala_ast.nodes import MatchExpr
+        self._expect(Keyword(KeywordKind.MATCH))
+        expr = self.parse_expr_no_struct_literal()
+        self._expect(Delimiter(DelimiterKind.LBRACE))
+        arms: list[MatchArm] = []
+        while not self._check(Delimiter(DelimiterKind.RBRACE)):
+            arms.append(self._parse_match_arm())
+            if self._check(Delimiter(DelimiterKind.COMMA)):
+                self._advance()
+        self._expect(Delimiter(DelimiterKind.RBRACE))
+        return MatchExpr(expr=expr, arms=arms, is_comp=is_comp)
 
     def _parse_pattern(self) -> Pattern:
         """

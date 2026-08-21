@@ -320,6 +320,15 @@ class ExprParser:
     def _parse_primary(self) -> Expr:
         tok = self._current()
 
+        # match / comp match sebagai expression
+        if tok.kind == Keyword(KeywordKind.MATCH):
+            return self._parse_match_expr(is_comp=False)
+        if tok.kind == Keyword(KeywordKind.COMP):
+            nxt = self._peek()
+            if nxt is not None and nxt.kind == Keyword(KeywordKind.MATCH):
+                self._advance()  # comp
+                return self._parse_match_expr(is_comp=True)
+
         # --- LEADING-DOT: token PERTAMA adalah DOT, tanpa base sama
         # sekali. Ini yang GAGAL TOTAL di versi lama -- _parse_primary
         # lama tidak punya cabang ini sama sekali. ---
@@ -373,10 +382,8 @@ class ExprParser:
             return self._parse_if_expr()
 
         if tok.kind == Delimiter(DelimiterKind.LPAREN):
-            self._advance()
-            inner = self.parse_expr()
-            self._expect(Delimiter(DelimiterKind.RPAREN))
-            return inner
+            # (expr) grouping  ATAU  (params) -> Ret => body  pure function literal
+            return self._parse_paren_or_function_literal()
 
         if tok.kind == Delimiter(DelimiterKind.LBRACKET):
             return self._parse_array_literal()
@@ -395,6 +402,39 @@ class ExprParser:
             return Ident(name=tok.text)
 
         raise ParseError(f"Unexpected token {describe_token_kind(tok.kind)} ({tok.text!r}) at {tok.span}")
+
+
+    def _parse_paren_or_function_literal(self):
+        """
+        (x: i32) -> i32 => x * x   → FunctionLiteral
+        (a + b)                    → grouping
+        """
+        from nala_ast.nodes import FunctionLiteral, Param
+        self._expect(Delimiter(DelimiterKind.LPAREN))
+        # Lookahead kasar: IDENT :  → mulai param list
+        if (self._check(Literal(LiteralKind.IDENT))
+                and self._peek() is not None
+                and self._peek().kind == Delimiter(DelimiterKind.COLON)):
+            params = []
+            while True:
+                name = self._expect(Literal(LiteralKind.IDENT)).text
+                self._expect(Delimiter(DelimiterKind.COLON))
+                ty = self._parse_type_expr()
+                params.append(Param(name=name, type=ty))
+                if self._check(Delimiter(DelimiterKind.COMMA)):
+                    self._advance()
+                    continue
+                break
+            self._expect(Delimiter(DelimiterKind.RPAREN))
+            self._expect(Delimiter(DelimiterKind.ARROW))  # ->
+            ret = self._parse_type_expr()
+            self._expect(Delimiter(DelimiterKind.FAT_ARROW))  # =>
+            body = self.parse_expr()
+            return FunctionLiteral(params=params, return_type=ret, body=body)
+        # grouping
+        inner = self.parse_expr()
+        self._expect(Delimiter(DelimiterKind.RPAREN))
+        return inner
 
     def _parse_leading_dot(self) -> Expr:
         """

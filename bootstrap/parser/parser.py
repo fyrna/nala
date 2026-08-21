@@ -19,7 +19,7 @@ from nala_ast.nodes import (
     CompilerHint, UseDecl,
     EnumVariantDecl, EnumDecl, SumVariantDecl,
     SumDecl, StructField, StructDecl, TraitMethodDecl, TraitDecl,
-    SatisfyDecl, ForeignDecl, FnDecl, Param, SelfParam, TestDecl, Stmt,
+    SatisfyDecl, ForeignDecl, FnDecl, Param, SelfParam, TypeParam, ConstDecl, TestDecl, Stmt,
 )
 
 from parser.expr import ExprParser, ParseError as ExprParseError
@@ -428,29 +428,34 @@ class Parser(ExprParser, StmtParser):
         if self._check(Keyword(KeywordKind.TRAIT)):
             return self._parse_trait_body(name_tok.text)
 
-        # const biasa (nilai primitif atau alias) -- untuk sekarang
-        # direpresentasikan minimal; detail const-value/alias exhaustive
-        # menyusul kalau dibutuhkan kasus konkret lebih lanjut.
+        # const value atau re-export item (const Result = std.core.Result)
         value = self.parse_expr()
         self._expect(Delimiter(DelimiterKind.SEMICOLON))
-        return ("ConstDecl", name_tok.text, value)
+        return ConstDecl(
+            name=name_tok.text,
+            value=value,
+            type_params=type_params,
+            hints=hints,
+        )
 
-    def _parse_type_param_list(self) -> list[str]:
-        """<T, U, ...> -- nama polos, SYNTAX saja (parser be stupid,
-        tidak tahu apakah T valid/dipakai konsisten)."""
+    def _parse_type_param_list(self) -> list:
+        """
+        <T : type, E : satisfy Error, …>
+        Compiler-syntax ekspansi — catat nama + bound TypeExpr.
+        """
         self._expect(Operator(OperatorKind.LT))
-        params = [self._expect(Literal(LiteralKind.IDENT)).text]
-        # optional ": type" atau ": satisfy Trait" bound -- di-skip
-        # strukturnya sederhana dulu, cukup catat nama.
-        if self._check(Delimiter(DelimiterKind.COLON)):
-            self._advance()
-            self._parse_type_expr()
-        while self._check(Delimiter(DelimiterKind.COMMA)):
-            self._advance()
-            params.append(self._expect(Literal(LiteralKind.IDENT)).text)
+        params = []
+        while True:
+            name = self._expect(Literal(LiteralKind.IDENT)).text
+            bound = None
             if self._check(Delimiter(DelimiterKind.COLON)):
                 self._advance()
-                self._parse_type_expr()
+                bound = self._parse_type_expr()
+            params.append(TypeParam(name=name, bound=bound))
+            if self._check(Delimiter(DelimiterKind.COMMA)):
+                self._advance()
+                continue
+            break
         self._expect(Operator(OperatorKind.GT))
         return params
 

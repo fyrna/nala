@@ -122,6 +122,26 @@ class UseDecl:
 
 
 @dataclass
+class ConstDecl:
+    """
+    const Name [= type_params] = value;
+
+    Dua peran:
+      - Value const:  const x: i32 = 5;
+      - Re-export:    const Result = std.core.Result;
+        (value = path ke item; bukan namespace)
+
+    struct/sum/enum/trait setelah `const Name =` diparse sebagai
+    StructDecl/SumDecl/... tersendiri.
+    """
+    name: str
+    value: "Expr"
+    type: "TypeExpr | None" = None  # anotasi opsional
+    type_params: list[str] = field(default_factory=list)
+    hints: list["CompilerHint"] = field(default_factory=list)
+
+
+@dataclass
 class ForeignDecl:
     """
     foreign "libname" fn name(params) -> return_type;
@@ -158,11 +178,22 @@ class SumVariantDecl:
 
 
 @dataclass
+class TypeParam:
+    """
+    Slot compiler-syntax <Name : bound>.
+    `<>` = ekspansi compile-time.
+    bound None / type → meta-type type; satisfy Trait → bound check.
+    """
+    name: str
+    bound: "TypeExpr | None" = None
+
+
+@dataclass
 class SumDecl:
     name: str
     variants: list[SumVariantDecl] = field(default_factory=list)
     methods: list["FnDecl"] = field(default_factory=list)
-    type_params: list[str] = field(default_factory=list)  # <T, U, ...> -- sama seperti StructDecl
+    type_params: list = field(default_factory=list)
     hints: list[CompilerHint] = field(default_factory=list)
 
 
@@ -178,7 +209,7 @@ class StructDecl:
     name: str
     fields: list[StructField] = field(default_factory=list)
     methods: list["FnDecl"] = field(default_factory=list)
-    type_params: list[str] = field(default_factory=list)  # <T, U, ...> -- nama polos, syntax saja
+    type_params: list = field(default_factory=list)
     hints: list[CompilerHint] = field(default_factory=list)
 
 
@@ -273,6 +304,18 @@ class UnaryExpr(Expr):
 class CallExpr(Expr):
     callee: str
     args: list[Expr] = field(default_factory=list)
+
+
+@dataclass
+class FunctionLiteral(Expr):
+    """
+    Pure function value (function.md):
+      (x: i32) -> i32 => x * x
+    Bertipe FunctionType (T)->U — bukan item prosedural.
+    """
+    params: list  # list[Param]
+    return_type: "TypeExpr"
+    body: Expr  # expression body (pure)
 
 
 @dataclass
@@ -482,16 +525,36 @@ class AtBindPattern(Pattern):
 
 @dataclass
 class MatchArm:
+    """
+    pattern [if guard] => body
+
+    Tidak ada implicit return.
+    - MatchStmt: `=> expr` hanya ExprStmt (nilai dibuang) kecuali ret eksplisit
+    - MatchExpr: `=> expr` menyuplai nilai arm; block tetap wajib ret eksplisit
+    """
     pattern: Pattern
     body: list["Stmt"]
     guard: "Expr | None" = None
+    body_is_expr: bool = False  # True jika `=> expr` (bukan block/stmt)
 
 
 @dataclass
 class MatchStmt:
+    """match sebagai statement."""
     expr: Expr
     arms: list[MatchArm]
-    is_comp: bool = False  # comp match vs match biasa
+    is_comp: bool = False
+
+
+@dataclass
+class MatchExpr(Expr):
+    """
+    match sebagai expression (mis. ret match x { 1 => 10, _ => 0 }).
+    Semua arm value harus bertipe sama.
+    """
+    expr: Expr
+    arms: list[MatchArm]
+    is_comp: bool = False
 
 
 class Stmt:
